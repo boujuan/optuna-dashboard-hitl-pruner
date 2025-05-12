@@ -16,6 +16,10 @@ USERNAME=$(whoami)
 HOME_DIR=$HOME
 SCRIPT_DIR="$(dirname "$0")"
 CERT_PATH="${SCRIPT_DIR}/cert/ca.pem"
+PRUNE_PATTERN="PRUNE"
+FAIL_PATTERN="FAIL"
+DRY_RUN=""
+ALL_TRIALS=""
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -68,6 +72,22 @@ while [[ $# -gt 0 ]]; do
             WIN_USERNAME="$2"
             shift 2
             ;;
+        --prune-pattern)
+            PRUNE_PATTERN="$2"
+            shift 2
+            ;;
+        --fail-pattern)
+            FAIL_PATTERN="$2"
+            shift 2
+            ;;
+        --dry-run)
+            DRY_RUN="--dry-run"
+            shift
+            ;;
+        --all-trials)
+            ALL_TRIALS="--all-trials"
+            shift
+            ;;
         --help)
             echo "Usage: $0 [options]"
             echo "Options:"
@@ -79,8 +99,12 @@ while [[ $# -gt 0 ]]; do
             echo "  --db-user USER        Database username"
             echo "  --db-password PASS    Database password"
             echo "  --conda-env NAME      Conda environment name (default: $CONDA_ENV)"
-            echo "  --interval SECONDS    Monitor check interval in seconds (default: 5)"
+            echo "  --interval SECONDS    Monitor check interval in seconds (default: 10)"
             echo "  --cert-path PATH      Path to CA certificate file"
+            echo "  --prune-pattern PAT   Custom regex pattern for PRUNE commands (default: 'PRUNE')"
+            echo "  --fail-pattern PAT    Custom regex pattern for FAIL commands (default: 'FAIL')"
+            echo "  --dry-run             Test mode - don't actually change trial states"
+            echo "  --all-trials          Monitor all trials, not just active ones"
             echo "  --verbose             Show more detailed output"
             echo "  --help                Show this help message"
             exit 0
@@ -144,7 +168,7 @@ optuna-dashboard "$DB_URL" --port "$DASHBOARD_PORT" &
 DASHBOARD_PID=$!
 
 # Wait a moment for the dashboard to initialize
-echo "Waiting for dashboard to initialize (2 seconds)..."
+echo "Waiting for dashboard to initialize (5 seconds)..."
 sleep 5
 
 # Start the Human Trial Monitor in the background
@@ -153,10 +177,14 @@ MONITOR_SCRIPT="${SCRIPT_DIR}/human_trial_monitor.py"
 echo "Starting Human-in-the-loop Trial Monitor..."
 if [ -n "$STUDY_NAME" ]; then
     echo "Monitoring specific study: $STUDY_NAME"
-    python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" --study "$STUDY_NAME" --interval "$INTERVAL" $VERBOSE &
+    python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" --study "$STUDY_NAME" \
+        --interval "$INTERVAL" --prune-pattern "$PRUNE_PATTERN" --fail-pattern "$FAIL_PATTERN" \
+        $VERBOSE $DRY_RUN $ALL_TRIALS &
 else
     echo "Monitoring all studies in the database"
-    python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" --interval "$INTERVAL" $VERBOSE &
+    python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" \
+        --interval "$INTERVAL" --prune-pattern "$PRUNE_PATTERN" --fail-pattern "$FAIL_PATTERN" \
+        $VERBOSE $DRY_RUN $ALL_TRIALS &
 fi
 MONITOR_PID=$!
 
@@ -176,11 +204,17 @@ cleanup() {
 # Register the cleanup function
 trap cleanup EXIT INT TERM
 
+echo ""
 echo "Services are running:"
 echo "- Dashboard: http://localhost:${DASHBOARD_PORT}"
 echo "- Human-in-the-loop Monitor: Active and connected to the database"
+echo ""
 echo "The services will automatically stop when this terminal is closed."
-echo "To use: Add a note with 'PRUNE' or 'FAIL' to any trial in the dashboard to change its state."
+echo "To use: Add a note with '$PRUNE_PATTERN' or '$FAIL_PATTERN' to any trial in the dashboard to change its state."
+if [ -n "$DRY_RUN" ]; then
+    echo "NOTE: Running in DRY-RUN mode - no actual trial state changes will be made."
+fi
+echo ""
 
 # Wait for the processes to keep the script running
 wait $DASHBOARD_PID $MONITOR_PID
