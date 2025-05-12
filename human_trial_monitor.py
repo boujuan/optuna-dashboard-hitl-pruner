@@ -6,8 +6,8 @@ import time
 import sys
 import argparse
 import logging
+import re
 from optuna.trial import TrialState
-from optuna_dashboard import register_note_updater
 
 # Set up logging
 logging.basicConfig(
@@ -23,44 +23,50 @@ class HumanTrialStateMonitor:
         self.check_interval = check_interval
         self.running = True
         self.thread = None
+        self.prune_pattern = re.compile(r'PRUNE', re.IGNORECASE)
+        self.fail_pattern = re.compile(r'FAIL', re.IGNORECASE)
         
         # Set up a place to store state change requests
         if "state_change_requests" not in study.user_attrs:
             study.set_user_attr("state_change_requests", "")
-        
-        # Register a note updater to monitor for state change commands
-        register_note_updater(
-            study=study,
-            note_updater=self._process_note_for_commands
-        )
-        
+            
         logger.info(f"Monitor initialized for study: {study.study_name}")
     
-    def _process_note_for_commands(self, trial, note):
-        """Process notes for state change commands."""
-        if not note:
-            return note
+    def check_notes_for_commands(self):
+        """Check all trial notes for prune/fail commands"""
+        try:
+            trials = self.study.get_trials(deepcopy=False)
             
-        # Look for command keywords
-        note_upper = note.upper()
-        trial_id = trial.number
-        new_note = note
+            for trial in trials:
+                # Skip if there's no note
+                if "note" not in trial.user_attrs:
+                    continue
+                
+                note = trial.user_attrs["note"]
+                trial_id = trial.number
+                
+                # Skip if already processed this note (has confirmation message)
+                if "✅ Marked this trial" in note:
+                    continue
+                
+                # Look for pruning command
+                if self.prune_pattern.search(note):
+                    self._add_state_change_request(trial_id, "PRUNED", note)
+                    new_note = f"✅ Marked this trial (#{trial_id}) for PRUNING.\nOriginal note: {note}"
+                    trial.set_user_attr("note", new_note)
+                    logger.info(f"Received request to PRUNE trial #{trial_id}")
+                
+                # Look for fail command
+                elif self.fail_pattern.search(note):
+                    self._add_state_change_request(trial_id, "FAILED", note)
+                    new_note = f"✅ Marked this trial (#{trial_id}) for FAILING.\nOriginal note: {note}"
+                    trial.set_user_attr("note", new_note)
+                    logger.info(f"Received request to FAIL trial #{trial_id}")
         
-        # Check for pruning command
-        if "PRUNE" in note_upper:
-            self._add_state_change_request(trial_id, "PRUNED")
-            new_note = f"✅ Marked this trial (#{trial_id}) for PRUNING.\nOriginal note: {note}"
-            logger.info(f"Received request to PRUNE trial #{trial_id}")
-        
-        # Check for failure command
-        elif "FAIL" in note_upper:
-            self._add_state_change_request(trial_id, "FAILED")
-            new_note = f"✅ Marked this trial (#{trial_id}) for FAILING.\nOriginal note: {note}"
-            logger.info(f"Received request to FAIL trial #{trial_id}")
-            
-        return new_note
+        except Exception as e:
+            logger.error(f"Error checking notes: {e}")
     
-    def _add_state_change_request(self, trial_id, target_state):
+    def _add_state_change_request(self, trial_id, target_state, original_note):
         """Add a state change request."""
         current_requests = self.study.user_attrs.get("state_change_requests", "")
         request = f"{trial_id}:{target_state}"
@@ -74,6 +80,10 @@ class HumanTrialStateMonitor:
         logger.info("Starting monitor thread")
         while self.running:
             try:
+                # Check for commands in notes
+                self.check_notes_for_commands()
+                
+                # Process any pending requests
                 requests = self.study.user_attrs.get("state_change_requests", "")
                 if requests:
                     processed_requests = []
