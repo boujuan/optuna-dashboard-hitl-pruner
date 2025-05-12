@@ -1,0 +1,5 @@
+./_bak/*
+./cert/*
+/_bak
+/cert
+*.pem
