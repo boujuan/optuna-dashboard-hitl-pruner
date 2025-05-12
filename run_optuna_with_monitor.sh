@@ -1,6 +1,7 @@
 #!/bin/zsh
 
 # Default values
+WIN_USERNAME="Juan Boullosa"
 DASHBOARD_PORT=8080
 STUDY_NAME=""
 VERBOSE=""
@@ -62,6 +63,10 @@ while [[ $# -gt 0 ]]; do
         --verbose)
             VERBOSE="--verbose"
             shift
+            ;;
+        --win-username)
+            WIN_USERNAME="$2"
+            shift 2
             ;;
         --help)
             echo "Usage: $0 [options]"
@@ -160,7 +165,7 @@ MONITOR_PID=$!
 
 # Launch Thorium browser
 echo "Launching Thorium browser..."
-/mnt/c/Users/$USERNAME/AppData/Local/Thorium/Application/chrome_proxy.exe --profile-directory=Default --app-id=njlcciipedhmlpadngkndhojnjhpmdio &
+/mnt/c/Users/${WIN_USERNAME// /\\ }/AppData/Local/Thorium/Application/chrome_proxy.exe --profile-directory=Default --app-id=njlcciipedhmlpadngkndhojnjhpmdio &
 BROWSER_PID=$!
 
 # Set up cleanup function
