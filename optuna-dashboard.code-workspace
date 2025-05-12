@@ -2,6 +2,10 @@
 	"folders": [
 		{
 			"path": "."
+		},
+		{
+			"name": "optuna-dashboard",
+			"path": "../optuna-dashboard-fork/optuna-dashboard"
 		}
 	],
 	"settings": {}

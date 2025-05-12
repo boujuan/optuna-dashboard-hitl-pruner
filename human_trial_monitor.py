@@ -8,7 +8,8 @@ import argparse
 import logging
 import re
 from optuna.trial import TrialState
-from optuna_dashboard._note import get_note_from_system_attrs, note_ver_key, note_str_key_prefix
+# Import necessary functions directly from the internal module
+from optuna_dashboard._note import get_note_from_system_attrs, note_ver_key
 
 # Set up logging
 logging.basicConfig(
@@ -20,16 +21,18 @@ logger = logging.getLogger("HumanTrialMonitor")
 
 class HumanTrialStateMonitor:
     """
-    Monitor for human-in-the-loop trial control via Optuna Dashboard notes.
+    Optimized monitor for human-in-the-loop trial control via Optuna Dashboard notes.
 
     This class monitors trials within an Optuna study for changes in their notes
-    made through the Optuna Dashboard. When a note contains command patterns like
-    "PRUNE" or "FAIL", it will automatically update the trial's state accordingly.
+    made through the Optuna Dashboard. It efficiently checks for note updates
+    by tracking note versions and processes commands like "PRUNE" or "FAIL".
 
     Features:
-    - Customizable command patterns for different actions
-    - Dry-run mode for testing without making actual changes
-    - Efficient change detection to avoid redundant processing
+    - Optimized note checking using version tracking.
+    - Fetches system attributes only once per check cycle.
+    - Customizable command patterns for different actions.
+    - Dry-run mode for testing without making actual changes.
+    - Efficient change detection to avoid redundant processing.
     """
     def __init__(self, study, check_interval=10,
                  prune_pattern=r'PRUNE', fail_pattern=r'FAIL',
@@ -57,163 +60,157 @@ class HumanTrialStateMonitor:
         self.prune_pattern = re.compile(prune_pattern, re.IGNORECASE)
         self.fail_pattern = re.compile(fail_pattern, re.IGNORECASE)
 
-        # Get proper trial states (handle different Optuna versions)
-        # We know it's FAIL from examining _state.py
+        # Get proper trial states
         self.FAILED_STATE = TrialState.FAIL
 
-        # Keep track of processed notes to avoid duplicate actions
-        self.processed_notes = {}
+        # Keep track of processed note *versions* to avoid duplicate actions
+        # Stores {trial_number: last_processed_note_version}
+        self.processed_note_versions = {}
+        # Cache for trial_ids to avoid repeated lookups
+        self._trial_id_cache = {}
 
         logger_msg = [f"Monitor initialized for study: {study.study_name}"]
         if dry_run:
             logger_msg.append("DRY RUN MODE: No state changes will be applied")
         logger.info(" - ".join(logger_msg))
 
-    def _get_trial_note(self, trial):
-        """
-        Get note for a trial using the study's storage directly.
+    def _get_trial_id(self, trial_number):
+        """Get trial_id from cache or storage, caching the result."""
+        if trial_number in self._trial_id_cache:
+            return self._trial_id_cache[trial_number]
 
-        This is a workaround for the fact that FrozenTrial objects don't have
-        a storage attribute, which is required by optuna_dashboard.get_note().
-
-        Args:
-            trial: The optuna.FrozenTrial object
-
-        Returns:
-            str: The note text, or empty string if no note exists
-        """
-        try:
-            # Access study's storage and study_id
-            storage = self.study._storage
-            study_id = self.study._study_id
-            trial_id = None
-
-            # Get the trial's internal id
-            # First try to get it directly from the trial if available
-            if hasattr(trial, "_trial_id"):
-                trial_id = trial._trial_id
-            else:
-                # Otherwise, we need to look it up from the database
-                # This can happen with older Optuna versions
-                # Use get_trial_id_from_study_id_trial_number if available
-                if hasattr(storage, 'get_trial_id_from_study_id_trial_number'):
-                    trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, trial.number)
-                else:
-                    # Fallback: Get all trials and find the matching number
-                    all_trials_in_study = storage.get_all_trials(study_id, deepcopy=False)
-                    found_trial = next((t for t in all_trials_in_study if t.number == trial.number), None)
-                    if found_trial:
-                        trial_id = found_trial._trial_id
-                    else:
-                        logger.warning(f"Could not find trial_id for trial number {trial.number}")
-                        return ""
-
-            if trial_id is None:
-                 logger.warning(f"Could not determine trial_id for trial number {trial.number}")
-                 return ""
-
-            # Get the system attributes for this study
-            system_attrs = storage.get_study_system_attrs(study_id)
-
-            # Use optuna_dashboard's helper function to extract the note
-            note = get_note_from_system_attrs(system_attrs, trial_id)
-            return note["body"]
-
-        except Exception as e:
-            logger.error(f"Error reading note for trial #{trial.number}: {e}")
-            return ""
-
-    def check_for_note_changes(self):
-        """
-        Check all trials in the study for note changes and process any commands
-        found in those notes.
-        """
-        try:
-            # Get all trials in the study, filtered if needed
-            all_trials = self.study.get_trials(deepcopy=False, states=None)
-
-            # Filter trials if needed
-            if self.only_active_trials:
-                inactive_states = [TrialState.PRUNED, self.FAILED_STATE]
-                trials = [t for t in all_trials if t.state not in inactive_states]
-                if len(trials) < len(all_trials):
-                    logger.debug(f"Monitoring {len(trials)} active trials out of {len(all_trials)} total trials")
-            else:
-                trials = all_trials
-
-            # Process each trial
-            for trial in trials:
-                try:
-                    self._check_and_process_trial(trial)
-                except Exception as e:
-                    logger.error(f"Error processing trial #{trial.number}: {e}")
-
-        except Exception as e:
-            logger.error(f"Error checking for note changes: {e}")
-
-    def _check_and_process_trial(self, trial):
-        """
-        Check if a trial's note has changed and process any commands in it.
-
-        Args:
-            trial: The optuna.FrozenTrial object to check
-        """
-        trial_number = trial.number
-
-        try:
-            # Use our custom function to get the note
-            note = self._get_trial_note(trial)
-
-            # Skip if no note
-            if not note:
-                return
-
-            # Skip if we've already processed this exact note
-            if trial_number in self.processed_notes and self.processed_notes[trial_number] == note:
-                return
-
-            # We have a new or changed note
-            logger.info(f"New or changed note detected for trial #{trial_number}: {note}")
-
-            # Process the note for commands
-            if self.prune_pattern.search(note):
-                logger.info(f"PRUNE command found in note for trial #{trial_number}")
-                self._change_trial_state(trial_number, TrialState.PRUNED)
-            elif self.fail_pattern.search(note):
-                logger.info(f"FAIL command found in note for trial #{trial_number}")
-                self._change_trial_state(trial_number, self.FAILED_STATE)
-
-            # Remember we've processed this note
-            self.processed_notes[trial_number] = note
-
-        except Exception as e:
-            logger.error(f"Error checking note for trial #{trial_number}: {e}")
-
-    def _get_trial_state_from_storage(self, trial_number):
-        """Get the current state of a trial directly from storage."""
         try:
             storage = self.study._storage
             study_id = self.study._study_id
             trial_id = None
 
-            # Get trial_id (using the same logic as in _get_trial_note)
+            # Use get_trial_id_from_study_id_trial_number if available
             if hasattr(storage, 'get_trial_id_from_study_id_trial_number'):
                  trial_id = storage.get_trial_id_from_study_id_trial_number(study_id, trial_number)
             else:
+                 # Fallback: Get all trials and find the matching number
                  all_trials_in_study = storage.get_all_trials(study_id, deepcopy=False)
                  found_trial = next((t for t in all_trials_in_study if t.number == trial_number), None)
                  if found_trial:
                      trial_id = found_trial._trial_id
 
-            if trial_id is None:
-                logger.warning(f"Could not find trial_id for trial number {trial_number} when checking state.")
+            if trial_id is not None:
+                self._trial_id_cache[trial_number] = trial_id
+                return trial_id
+            else:
+                logger.warning(f"Could not determine trial_id for trial number {trial_number}")
                 return None
+        except Exception as e:
+            logger.error(f"Error getting trial_id for trial #{trial_number}: {e}")
+            return None
 
-            # Get the FrozenTrial object from storage
+
+    def check_for_note_changes(self):
+        """
+        Check all relevant trials in the study for note changes efficiently
+        and process any commands found in those notes.
+        """
+        try:
+            storage = self.study._storage
+            study_id = self.study._study_id
+
+            # --- Optimization 1: Fetch system attributes once per cycle ---
+            system_attrs = storage.get_study_system_attrs(study_id)
+
+            # Get all trials in the study, filtered if needed
+            all_trials = self.study.get_trials(deepcopy=False, states=None)
+
+            # Filter trials
+            if self.only_active_trials:
+                # Include COMPLETE state here, as users might add notes after completion
+                # but exclude states that definitely won't be changed again.
+                inactive_states = [TrialState.PRUNED, self.FAILED_STATE]
+                trials_to_check = [t for t in all_trials if t.state not in inactive_states]
+                if len(trials_to_check) < len(all_trials):
+                    logger.debug(f"Checking {len(trials_to_check)} potentially active trials out of {len(all_trials)} total.")
+            else:
+                trials_to_check = all_trials
+
+            # Process each relevant trial
+            for trial in trials_to_check:
+                try:
+                    # Pass pre-fetched system_attrs for efficiency
+                    self._check_and_process_trial(trial, system_attrs)
+                except Exception as e:
+                    # Log error for specific trial processing but continue loop
+                    logger.error(f"Error processing trial #{trial.number}: {e}")
+
+        except Exception as e:
+            # Log error for the overall check cycle
+            logger.error(f"Error during note change check cycle: {e}")
+
+    def _check_and_process_trial(self, trial, system_attrs):
+        """
+        Check if a trial's note version has changed and process commands if needed.
+
+        Args:
+            trial: The optuna.FrozenTrial object to check.
+            system_attrs: Pre-fetched system attributes for the study.
+        """
+        trial_number = trial.number
+        trial_id = self._get_trial_id(trial_number)
+
+        if trial_id is None:
+            return # Cannot process without trial_id
+
+        try:
+            # --- Optimization 2: Check note version first ---
+            version_key = note_ver_key(trial_id)
+            current_note_version = int(system_attrs.get(version_key, 0))
+            last_processed_version = self.processed_note_versions.get(trial_number, -1) # Use -1 to process version 0
+
+            # Only process if the note version is new
+            if current_note_version > last_processed_version:
+                # Extract the note body *only* when the version has changed
+                note_data = get_note_from_system_attrs(system_attrs, trial_id)
+                note_body = note_data["body"]
+
+                if not note_body and last_processed_version == -1 and current_note_version == 0:
+                     # Skip empty initial notes unless explicitly processed before
+                     pass
+                else:
+                    logger.info(f"New note version {current_note_version} detected for trial #{trial_number}. Content: '{note_body[:100]}{'...' if len(note_body)>100 else ''}'")
+
+                    # Process the note content for commands
+                    processed_action = False
+                    if self.prune_pattern.search(note_body):
+                        logger.info(f"PRUNE command found in note for trial #{trial_number}")
+                        self._change_trial_state(trial_number, TrialState.PRUNED)
+                        processed_action = True
+                    elif self.fail_pattern.search(note_body):
+                        logger.info(f"FAIL command found in note for trial #{trial_number}")
+                        self._change_trial_state(trial_number, self.FAILED_STATE)
+                        processed_action = True
+
+                    # Update the processed version *after* processing
+                    self.processed_note_versions[trial_number] = current_note_version
+
+            # Clean up cache for finished trials to prevent memory leak if monitoring all trials
+            if trial.state.is_finished() and trial_number in self._trial_id_cache:
+                 del self._trial_id_cache[trial_number]
+
+
+        except Exception as e:
+            logger.error(f"Error checking/processing note for trial #{trial_number}: {e}")
+
+    def _get_trial_state_from_storage(self, trial_number):
+        """Get the current state of a trial directly from storage."""
+        trial_id = self._get_trial_id(trial_number)
+        if trial_id is None:
+            logger.warning(f"Could not find trial_id for trial number {trial_number} when checking state.")
+            return None
+        try:
+            storage = self.study._storage
+            # Get the FrozenTrial object from storage using trial_id
             frozen_trial = storage.get_trial(trial_id)
             return frozen_trial.state
         except Exception as e:
-            logger.error(f"Error getting state from storage for trial #{trial_number}: {e}")
+            logger.error(f"Error getting state from storage for trial #{trial_number} (ID: {trial_id}): {e}")
             return None
 
 
@@ -236,35 +233,44 @@ class HumanTrialStateMonitor:
             # Skip if already in the target state
             if current_state == new_state:
                 logger.info(f"Trial #{trial_number} is already in state {new_state}")
+                # Ensure version is marked as processed even if state doesn't change
+                # Note: This logic is now handled in _check_and_process_trial
                 return
 
-            # Skip if trial is not in a state that can be changed
-            if current_state not in [TrialState.RUNNING, TrialState.COMPLETE, TrialState.WAITING]:
-                logger.warning(f"Cannot change trial #{trial_number} from state {current_state} to {new_state}")
+            # Skip if trial is not in a state that can be changed by tell()
+            # Typically RUNNING or WAITING. COMPLETE might sometimes be allowed depending on Optuna version/storage.
+            if current_state not in [TrialState.RUNNING, TrialState.WAITING, TrialState.COMPLETE]:
+                logger.warning(f"Cannot change trial #{trial_number} from state {current_state} to {new_state} using study.tell()")
                 return
 
             # Change the state (or just log in dry-run mode)
             if self.dry_run:
                 logger.info(f"DRY RUN: Would change trial #{trial_number} from {current_state} to {new_state}")
             else:
-                logger.info(f"Changing trial #{trial_number} state from {current_state} to {new_state}")
+                logger.info(f"Attempting to change trial #{trial_number} state from {current_state} to {new_state}")
                 # Use study.tell() as it seems available based on previous logs
-                self.study.tell(trial_number, state=new_state)
+                try:
+                    self.study.tell(trial_number, state=new_state, values=None) # Explicitly set values=None for PRUNE/FAIL
+                    logger.info(f"study.tell() called for trial #{trial_number} to set state {new_state}")
+                except Exception as tell_error:
+                     logger.error(f"Error calling study.tell() for trial #{trial_number}: {tell_error}")
+                     # Don't proceed with verification if tell failed
+                     return
 
                 # Verify the change by checking storage again
                 time.sleep(0.5) # Add a small delay to allow storage update
                 updated_state = self._get_trial_state_from_storage(trial_number)
 
                 if updated_state == new_state:
-                    logger.info(f"Successfully changed trial #{trial_number} state to {new_state}")
+                    logger.info(f"Successfully verified trial #{trial_number} state changed to {new_state}")
                 elif updated_state is not None:
-                    logger.warning(f"Failed to change trial #{trial_number} state. Still {updated_state}")
+                    logger.warning(f"Verification failed for trial #{trial_number}. State is {updated_state}, expected {new_state}")
                 else:
                     logger.warning(f"Could not verify state change for trial #{trial_number}.")
 
         except Exception as e:
             # Log the specific error related to state change
-            logger.error(f"Error changing state for trial #{trial_number}: {e}")
+            logger.error(f"Unexpected error during state change process for trial #{trial_number}: {e}")
 
 
     def monitor_loop(self):
@@ -275,28 +281,41 @@ class HumanTrialStateMonitor:
                 # Check for note changes
                 self.check_for_note_changes()
             except Exception as e:
-                logger.error(f"Error in monitor loop: {e}")
+                logger.error(f"Critical error in monitor loop: {e}")
+                # Optional: Add a longer sleep after critical errors
+                # time.sleep(self.check_interval * 5)
 
             time.sleep(self.check_interval)
+        logger.info("Monitor thread finished.")
+
 
     def start(self):
         """Start the monitoring thread"""
         if self.thread is None or not self.thread.is_alive():
             self.running = True
-            self.thread = threading.Thread(target=self.monitor_loop)
+            # Use a more descriptive thread name
+            self.thread = threading.Thread(target=self.monitor_loop, name=f"OptunaMonitor-{self.study.study_name}")
             self.thread.daemon = True
             self.thread.start()
-            logger.info("Monitor thread started")
+            logger.info(f"Monitor thread started for study '{self.study.study_name}'")
 
     def stop(self):
         """Stop the monitoring thread"""
+        logger.info(f"Stopping monitor thread for study '{self.study.study_name}'...")
         self.running = False
         if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=self.check_interval*2)
-            logger.info("Monitor thread stopped")
+            # Wait a bit longer if needed
+            self.thread.join(timeout=max(10, self.check_interval * 2))
+            if self.thread.is_alive():
+                 logger.warning("Monitor thread did not stop gracefully.")
+            else:
+                 logger.info("Monitor thread stopped.")
+        else:
+            logger.info("Monitor thread was not running or already stopped.")
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Human-in-the-loop trial state monitor for Optuna")
+    parser = argparse.ArgumentParser(description="Optimized Human-in-the-loop trial state monitor for Optuna")
     # Database connection options
     db_group = parser.add_argument_group('Database connection')
     db_group.add_argument("--db-url", help="Database URL for Optuna storage")
@@ -310,18 +329,28 @@ def main():
     # Monitor configuration
     monitor_group = parser.add_argument_group('Monitor configuration')
     monitor_group.add_argument("--study", help="Specific study name to monitor (default: monitor all studies)")
-    monitor_group.add_argument("--interval", type=int, default=5, help="Check interval in seconds (default: 5)")
+    monitor_group.add_argument("--interval", type=int, default=10, help="Check interval in seconds (default: 10)") # Increased default
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
     monitor_group.add_argument("--fail-pattern", default="FAIL", help="Regex pattern to detect FAIL commands (default: 'FAIL')")
     monitor_group.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (no changes applied)")
-    monitor_group.add_argument("--all-trials", action="store_true", help="Monitor all trials, not just active ones")
-    monitor_group.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    monitor_group.add_argument("--all-trials", action="store_true", help="Monitor all trials, not just potentially active ones")
+    monitor_group.add_argument("--verbose", action="store_true", help="Enable verbose logging (DEBUG level)")
 
     args = parser.parse_args()
 
     # Set logging level based on verbosity
-    if args.verbose:
-        logger.setLevel(logging.DEBUG)
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    # Reconfigure root logger if needed, or just our logger
+    # logging.basicConfig(level=log_level, format='%(asctime)s [%(levelname)s] [%(name)s] %(message)s', force=True)
+    logger.setLevel(log_level)
+    # Ensure handlers are set up correctly if basicConfig was already called
+    if not logger.handlers:
+         handler = logging.StreamHandler(sys.stdout)
+         formatter = logging.Formatter('%(asctime)s [%(levelname)s] [%(name)s] %(message)s')
+         handler.setFormatter(formatter)
+         logger.addHandler(handler)
+         logger.propagate = False # Avoid duplicate messages if root logger also has handlers
+
 
     # Determine the database URL
     db_url = args.db_url
@@ -337,59 +366,84 @@ def main():
         sys.exit(1)
 
     # Connect to the database
-    logger.info(f"Connecting to database: {db_url.split('@')[-1].split('/')[0]}")
+    logger.info(f"Connecting to database associated with host: {args.db_host or db_url.split('@')[-1].split('/')[0]}") # Mask password if using URL
 
-    # Common monitor params
-    monitor_params = {
-        'check_interval': args.interval,
-        'prune_pattern': args.prune_pattern,
-        'fail_pattern': args.fail_pattern,
-        'dry_run': args.dry_run,
-        'only_active_trials': not args.all_trials
-    }
-
+    monitors = []
     try:
         if args.study:
             # Monitor a specific study
+            logger.info(f"Loading study: {args.study}")
             study = optuna.load_study(study_name=args.study, storage=db_url)
-            monitor = HumanTrialStateMonitor(study, **monitor_params)
+            monitor = HumanTrialStateMonitor(
+                study,
+                check_interval=args.interval,
+                prune_pattern=args.prune_pattern,
+                fail_pattern=args.fail_pattern,
+                dry_run=args.dry_run,
+                only_active_trials=not args.all_trials
+            )
             monitor.start()
-            logger.info(f"Monitoring study: {args.study}")
+            monitors.append(monitor)
+            logger.info(f"Started monitoring for study: {args.study}")
         else:
             # Monitor all studies in the database
+            logger.info("Loading all studies from the database...")
             studies = optuna.get_all_study_summaries(storage=db_url)
-            monitors = []
 
             if not studies:
-                logger.warning("No studies found in the database")
-
-            for study_summary in studies:
-                study = optuna.load_study(study_name=study_summary.study_name, storage=db_url)
-                monitor = HumanTrialStateMonitor(study, **monitor_params)
-                monitor.start()
-                monitors.append(monitor)
-                logger.info(f"Monitoring study: {study.study_name}")
+                logger.warning("No studies found in the database to monitor.")
+            else:
+                 logger.info(f"Found {len(studies)} studies. Starting monitors...")
+                 for study_summary in studies:
+                     try:
+                         study = optuna.load_study(study_name=study_summary.study_name, storage=db_url)
+                         monitor = HumanTrialStateMonitor(
+                             study,
+                             check_interval=args.interval,
+                             prune_pattern=args.prune_pattern,
+                             fail_pattern=args.fail_pattern,
+                             dry_run=args.dry_run,
+                             only_active_trials=not args.all_trials
+                         )
+                         monitor.start()
+                         monitors.append(monitor)
+                         logger.info(f"Started monitoring for study: {study.study_name}")
+                     except Exception as load_err:
+                          logger.error(f"Failed to load or start monitor for study '{study_summary.study_name}': {load_err}")
 
             if monitors:
-                logger.info(f"Monitoring {len(monitors)} studies in total")
+                logger.info(f"Successfully started monitoring for {len(monitors)} studies.")
+
+        if not monitors:
+             logger.warning("No monitors started. Exiting.")
+             sys.exit(0)
 
         # Keep the script running
-        logger.info(f"Monitor running with configuration:")
+        logger.info(f"Monitor(s) running. Configuration:")
         logger.info(f"  - Prune pattern: '{args.prune_pattern}'")
         logger.info(f"  - Fail pattern: '{args.fail_pattern}'")
         logger.info(f"  - Check interval: {args.interval} seconds")
         logger.info(f"  - Dry run: {args.dry_run}")
-        logger.info(f"  - Monitoring {'all' if args.all_trials else 'only active'} trials")
+        logger.info(f"  - Monitoring {'all' if args.all_trials else 'only potentially active'} trials")
         logger.info("Press Ctrl+C to stop.")
 
         while True:
-            time.sleep(1)
+            # Check if any monitor threads are still alive
+            if not any(m.thread and m.thread.is_alive() for m in monitors):
+                 logger.warning("All monitor threads seem to have stopped unexpectedly.")
+                 break
+            time.sleep(5) # Main thread sleep
 
     except KeyboardInterrupt:
-        logger.info("Stopping monitor...")
+        logger.info("Ctrl+C received. Stopping monitors...")
     except Exception as e:
-        logger.error(f"Error: {e}")
-        sys.exit(1)
+        logger.error(f"An unexpected error occurred in the main loop: {e}", exc_info=True)
+    finally:
+        for monitor in monitors:
+            monitor.stop()
+        logger.info("All monitors stopped. Exiting.")
+        sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
