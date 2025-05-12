@@ -18,7 +18,7 @@ logging.basicConfig(
 logger = logging.getLogger("HumanTrialMonitor")
 
 class HumanTrialStateMonitor:
-    def __init__(self, study, check_interval=5):
+    def __init__(self, study, check_interval=10):
         self.study = study
         self.check_interval = check_interval
         self.running = True
