@@ -35,7 +35,18 @@ class HumanTrialStateMonitor:
     def check_notes_for_commands(self):
         """Check all trial notes for prune/fail commands"""
         try:
+            logger.info(f"Checking notes for study {self.study.study_name} (ID: {self.study._study_id})")
             trials = self.study.get_trials(deepcopy=False)
+            logger.info(f"Found {len(trials)} trials to check")
+            
+            # Force a refresh of the study (optional, try if other fixes don't work)
+            # self.study = optuna.load_study(study_name=self.study.study_name, storage=self.study._storage)
+            
+            # Log trials with notes
+            trials_with_notes = [t for t in trials if "note" in t.user_attrs]
+            logger.info(f"Found {len(trials_with_notes)} trials with notes")
+            for trial in trials_with_notes:
+                logger.info(f"Trial #{trial.number} has note: {trial.user_attrs['note']}")
             
             for trial in trials:
                 # Skip if there's no note

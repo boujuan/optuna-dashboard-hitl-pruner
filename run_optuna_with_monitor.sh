@@ -139,33 +139,30 @@ fi
 
 # Start the Optuna Dashboard in the background
 echo "Starting optuna-dashboard on port ${DASHBOARD_PORT}..."
-if [ -n "$STUDY_NAME" ]; then
-    echo "Loading study: $STUDY_NAME"
-    optuna-dashboard "$DB_URL" --port "$DASHBOARD_PORT" --study "$STUDY_NAME" &
-else
-    echo "Loading all studies from the database"
-    optuna-dashboard "$DB_URL" --port "$DASHBOARD_PORT" &
-fi
+echo "Loading all studies from the database"
+optuna-dashboard "$DB_URL" --port "$DASHBOARD_PORT" &
 DASHBOARD_PID=$!
 
 # Wait a moment for the dashboard to initialize
 echo "Waiting for dashboard to initialize (2 seconds)..."
-sleep 2
+sleep 5
 
 # Start the Human Trial Monitor in the background
 MONITOR_SCRIPT="${SCRIPT_DIR}/human_trial_monitor.py"
 
 echo "Starting Human-in-the-loop Trial Monitor..."
 if [ -n "$STUDY_NAME" ]; then
+    echo "Monitoring specific study: $STUDY_NAME"
     python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" --study "$STUDY_NAME" --interval "$INTERVAL" $VERBOSE &
 else
+    echo "Monitoring all studies in the database"
     python3 "$MONITOR_SCRIPT" --db-url "$DB_URL" --interval "$INTERVAL" $VERBOSE &
 fi
 MONITOR_PID=$!
 
 # Launch Thorium browser
 echo "Launching Thorium browser..."
-/mnt/c/Users/${WIN_USERNAME// /\\ }/AppData/Local/Thorium/Application/chrome_proxy.exe --profile-directory=Default --app-id=njlcciipedhmlpadngkndhojnjhpmdio &
+"/mnt/c/Users/Juan Boullosa/AppData/Local/Thorium/Application/chrome_proxy.exe" --profile-directory=Default --app-id=njlcciipedhmlpadngkndhojnjhpmdio &
 BROWSER_PID=$!
 
 # Set up cleanup function
