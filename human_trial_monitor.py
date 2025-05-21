@@ -36,7 +36,7 @@ class HumanTrialStateMonitor:
     """
     def __init__(self, study, check_interval=10,
                  prune_pattern=r'PRUNE', fail_pattern=r'FAIL',
-                 dry_run=False, only_active_trials=True):
+                 dry_run=False, only_active_trials=False):
         """
         Initialize the monitor with the given parameters.
 
@@ -333,7 +333,7 @@ def main():
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
     monitor_group.add_argument("--fail-pattern", default="FAIL", help="Regex pattern to detect FAIL commands (default: 'FAIL')")
     monitor_group.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (no changes applied)")
-    monitor_group.add_argument("--all-trials", action="store_true", help="Monitor all trials, not just potentially active ones")
+    monitor_group.add_argument("--only-active-trials", action="store_true", help="Monitor only potentially active trials (e.g., RUNNING, WAITING, COMPLETE), rather than all trials by default.")
     monitor_group.add_argument("--verbose", action="store_true", help="Enable verbose logging (DEBUG level)")
 
     args = parser.parse_args()
@@ -380,7 +380,7 @@ def main():
                 prune_pattern=args.prune_pattern,
                 fail_pattern=args.fail_pattern,
                 dry_run=args.dry_run,
-                only_active_trials=not args.all_trials
+                only_active_trials=args.only_active_trials
             )
             monitor.start()
             monitors.append(monitor)
@@ -403,7 +403,7 @@ def main():
                              prune_pattern=args.prune_pattern,
                              fail_pattern=args.fail_pattern,
                              dry_run=args.dry_run,
-                             only_active_trials=not args.all_trials
+                             only_active_trials=args.only_active_trials
                          )
                          monitor.start()
                          monitors.append(monitor)
@@ -424,7 +424,7 @@ def main():
         logger.info(f"  - Fail pattern: '{args.fail_pattern}'")
         logger.info(f"  - Check interval: {args.interval} seconds")
         logger.info(f"  - Dry run: {args.dry_run}")
-        logger.info(f"  - Monitoring {'all' if args.all_trials else 'only potentially active'} trials")
+        logger.info(f"  - Monitoring {'only potentially active' if args.only_active_trials else 'all'} trials")
         logger.info("Press Ctrl+C to stop.")
 
         while True:
