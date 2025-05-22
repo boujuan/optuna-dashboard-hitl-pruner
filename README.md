@@ -99,7 +99,7 @@ Create a `.bat` file (e.g., `launch_optuna.bat`) in your desired location (e.g.,
 
 ```batch
 @echo off
-"C:\Users\User\AppData\Local\Microsoft\WindowsApps\wt.exe" -p "Debian" wsl.exe -d Debian -e bash -c "/home/user/optuna-dashboard/run_optuna_miniforge.sh --db-type postgresql --db-host remote_postgresql_database.com --db-port 12345 --db-user dbuser --db-password 'password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --cert-path /home/user/optuna-dashboard/cert/ca.pem --use-cert --browser-path '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe'"
+"C:\Users\User\AppData\Local\Microsoft\WindowsApps\wt.exe" -p "Debian" wsl.exe -d Debian -e bash -c "/home/user/optuna-dashboard/run_optuna_miniforge.sh --db-type postgresql --db-host remote_postgresql_database.com --db-port 12345 --db-user dbuser --db-password 'password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --cert-path /home/user/optuna-dashboard-hitl-pruner/cert/ca.pem --use-cert --browser-path '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe'"
 ```
 
 #### For macOS and Linux
