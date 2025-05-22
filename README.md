@@ -26,7 +26,7 @@ This project provides a robust and generalized launcher for the Optuna Dashboard
     cd optuna-dashboard-hitl-pruner
     ```
 2.  **Ensure Miniforge3 is set up**: The `run_optuna_miniforge.sh` script assumes Miniforge3 is installed in your home directory (`$HOME/miniforge3`) by default. You can specify a different path using the `--conda-path` argument.
-3.  **Activate your Conda environment**: The `run_optuna_miniforge.sh` script will activate the `wf_env` environment by default, or the one specified by the `CONDA_ENV` environment variable.
+3.  **Activate your Conda environment**: The `run_optuna_miniforge.sh` script will activate the `wf_env` environment by default, or the one specified by the `CONDA_ENV` environment variable, or the one specified using the `--conda-env` argument.
 
 ## Installation as a Python Package
 
@@ -43,6 +43,7 @@ The main entry point is `run_optuna_miniforge.sh`, which handles environment act
 ### `run_optuna_miniforge.sh` Arguments
 
 *   `--conda-path PATH`: Specify the base installation path of your Conda environment (e.g., `/opt/conda`). Defaults to `$HOME/miniforge3`.
+*   `--conda-env ENV_NAME`: Specify the conda environment name to activate (e.g., `my_env`). Defaults to `wf_env` or the value of the `CONDA_ENV` environment variable.
 
 ### `optuna-monitor` Arguments
 
@@ -99,7 +100,7 @@ Create a `.bat` file (e.g., `launch_optuna.bat`) in your desired location (e.g.,
 
 ```batch
 @echo off
-"C:\Users\User\AppData\Local\Microsoft\WindowsApps\wt.exe" -p "Debian" wsl.exe -d Debian -e bash -c "/home/user/optuna-dashboard/run_optuna_miniforge.sh --db-type postgresql --db-host remote_postgresql_database.com --db-port 12345 --db-user dbuser --db-password 'password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --cert-path /home/user/optuna-dashboard-hitl-pruner/cert/ca.pem --use-cert --browser-path '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe'"
+"C:\Users\User\AppData\Local\Microsoft\WindowsApps\wt.exe" -p "Debian" wsl.exe -d Debian -e bash -c "/home/user/optuna-dashboard-hitl-pruner/run_optuna_miniforge.sh --conda-env my_env --db-type postgresql --db-host remote_postgresql_database.com --db-port 12345 --db-user dbuser --db-password 'password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --cert-path /home/user/optuna-dashboard-hitl-pruner/cert/ca.pem --use-cert --browser-path '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe'"
 ```
 
 #### For macOS and Linux
@@ -109,7 +110,7 @@ Open your terminal and navigate to the `optuna-dashboard` directory. Then, execu
 **Example using `--browser-path` (macOS/Linux):**
 
 ```bash
-/Users/youruser/miniforge3/bin/bash /path/to/optuna-dashboard/run_optuna_miniforge.sh --db-type postgresql --db-host your_db_host --db-port 5432 --db-user your_user --db-password 'your_password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --browser-path '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+/Users/youruser/miniforge3/bin/bash /path/to/optuna-dashboard-hitl-pruner/run_optuna_miniforge.sh --conda-env my_env --db-type postgresql --db-host your_db_host --db-port 5432 --db-user your_user --db-password 'your_password' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --browser-path '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 ```
 *(Replace `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` with the actual path to your browser executable on Linux, e.g., `/usr/bin/google-chrome` or `firefox`)*
 

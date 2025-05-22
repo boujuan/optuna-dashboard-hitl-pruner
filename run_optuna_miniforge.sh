@@ -31,6 +31,10 @@ while [[ $# -gt 0 ]]; do
             CONDA_BASE_PATH="$2"
             shift 2
             ;;
+        --conda-env)
+            CONDA_ENV="$2"
+            shift 2
+            ;;
         *)
             # Pass other arguments to the next script
             break
@@ -53,10 +57,23 @@ echo "Environment activated, starting services..."
 
 # Run the main script with all parameters and pass the conda environment name
 # The --conda-env argument is handled by this script and not passed to the Python launcher.
-# Filter out --thorium-app if it's still present (should be removed from batch script)
 FILTERED_ARGS=()
+skip_next=false
 for arg in "$@"; do
-    if [[ "$arg" != "--thorium-app" ]]; then
+    if [[ "$skip_next" == true ]]; then
+        skip_next=false
+        continue
+    fi
+    
+    if [[ "$arg" == "--thorium-app" ]]; then
+        continue
+    elif [[ "$arg" == "--conda-env" ]]; then
+        skip_next=true
+        continue
+    elif [[ "$arg" == "--conda-path" ]]; then
+        skip_next=true
+        continue
+    else
         FILTERED_ARGS+=("$arg")
     fi
 done
