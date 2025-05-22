@@ -84,7 +84,6 @@ Monitor configuration:
   --verbose             Enable verbose logging (DEBUG level)
 
 Browser launch options:
-  --thorium-app         Launch Thorium browser (uses hardcoded Thorium app arguments).
   --browser-path BROWSER_PATH
                         Launch specified browser executable with the dashboard URL.
 ```
@@ -95,12 +94,6 @@ Browser launch options:
 
 Create a `.bat` file (e.g., `launch_optuna.bat`) in your desired location (e.g., on your Desktop) with the following content. Remember to replace placeholder values like database credentials and study names with your actual information.
 
-**Example using `--thorium-app`:**
-
-```batch
-@echo off
-"C:\Users\User\AppData\Local\Microsoft\WindowsApps\wt.exe" -p "Debian" wsl.exe -d Debian -e bash -c "/home/user/optuna-dashboard/run_optuna_miniforge.sh --db-type postgresql --db-host remote_postgresql_database.com --db-port 12345 --db-user dbuser --db-password 'dbpassword' --db-name 'db_name' --study 'study_name_1' 'study_name_2' --cert-path /home/user/optuna-dashboard/cert/ca.pem --use-cert --thorium-app"
-```
 
 **Example using `--browser-path` (for a custom browser like Chrome):**
 

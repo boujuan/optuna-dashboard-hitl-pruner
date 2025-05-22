@@ -83,14 +83,12 @@ def main():
 
     # Browser launch options
     browser_group = parser.add_mutually_exclusive_group()
-    browser_group.add_argument("--thorium-app", action="store_true", help="Launch Thorium browser (uses hardcoded Thorium app arguments).")
     browser_group.add_argument("--browser-path", help="Launch specified browser executable with the dashboard URL.")
 
     args = parser.parse_args()
 
     # Validate mutual exclusivity (argparse handles this, but good for clarity)
-    if args.thorium_app and args.browser_path:
-        parser.error("--thorium-app and --browser-path are mutually exclusive. Please choose only one.")
+    # Removed --thorium-app, so no longer mutually exclusive with --browser-path
 
     # Determine DB URL
     db_url = args.db_url
@@ -217,36 +215,13 @@ def main():
 
     # Launch browser
     dashboard_url = f"http://localhost:{args.port}"
-    if args.thorium_app:
-        print("Launching Thorium browser app...")
-        if sys.platform == "darwin": # macOS
-            browser_cmd = ["open", "-a", "Thorium", dashboard_url]
-        elif sys.platform.startswith("linux"): # Linux (including WSL)
-            # This path is specific to Windows Thorium launched from WSL.
-            # For native Linux Thorium, it might be just 'thorium-browser' if in PATH,
-            # or a specific path like '/opt/thorium/thorium-browser'.
-            # Keeping the Windows path for WSL as per previous context.
-            browser_cmd = ["/mnt/c/Users/Juan Boullosa/AppData/Local/Thorium/Application/chrome_proxy.exe",
-                           "--profile-directory=Default", "--app-id=njlcciipedhmlpadngkndhojnjhpmdio",
-                           f"--app={dashboard_url}"]
-        else:
-            print(f"Warning: Thorium app launch not configured for this OS ({sys.platform}).", file=sys.stderr)
-            browser_cmd = []
-        
-        if browser_cmd:
-            try:
-                browser_process = subprocess.Popen(browser_cmd, preexec_fn=os.setsid)
-                CHILD_PROCESSES.append(browser_process)
-            except FileNotFoundError:
-                print(f"Error: Browser executable not found for Thorium app. Command: {' '.join(browser_cmd)}", file=sys.stderr)
-            except Exception as e:
-                print(f"Error launching Thorium app: {e}", file=sys.stderr)
-
-    elif args.browser_path:
-        print(f"Launching custom browser: {args.browser_path}")
+    if args.browser_path:
+        print(f"Attempting to launch custom browser: {args.browser_path}")
         try:
-            browser_process = subprocess.Popen([args.browser_path, dashboard_url], preexec_fn=os.setsid)
+            browser_process = subprocess.Popen([args.browser_path, dashboard_url], preexec_fn=os.setsid,
+                                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             CHILD_PROCESSES.append(browser_process)
+            print("Custom browser process launched.")
         except FileNotFoundError:
             print(f"Error: Custom browser executable not found at {args.browser_path}", file=sys.stderr)
         except Exception as e:

@@ -4,3 +4,6 @@
 /cert
 *.pem
 *.code-workspace
+**/build/*
+optuna_dashboard_monitor.egg-info
+**/__pycache__/*
