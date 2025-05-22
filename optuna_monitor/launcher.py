@@ -7,6 +7,7 @@ import os
 import time
 import atexit
 import signal
+from . import human_trial_monitor # Import the human_trial_monitor module
 
 # List to keep track of child processes
 CHILD_PROCESSES = []
@@ -177,25 +178,34 @@ def main():
 
     # Launch Human Trial Monitor
     print("Starting Human-in-the-loop Trial Monitor...")
-    monitor_script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "human_trial_monitor.py")
-    
-    monitor_cmd = [sys.executable, monitor_script_path, "--db-url", db_url]
+    # Pass arguments directly to human_trial_monitor.main()
+    monitor_args = [
+        f"--db-url={db_url}",
+        f"--interval={args.interval}",
+        f"--prune-pattern={args.prune_pattern}",
+        f"--fail-pattern={args.fail_pattern}"
+    ]
     if args.study:
-        monitor_cmd.extend(["--study"] + args.study)
-    monitor_cmd.extend([
-        "--interval", str(args.interval),
-        "--prune-pattern", args.prune_pattern,
-        "--fail-pattern", args.fail_pattern
-    ])
+        for study_name in args.study:
+            monitor_args.append(f"--study={study_name}")
     if args.dry_run:
-        monitor_cmd.append("--dry-run")
+        monitor_args.append("--dry-run")
     if args.all_trials:
-        monitor_cmd.append("--all-trials")
+        monitor_args.append("--only-active-trials") # Renamed in human_trial_monitor.py
     if args.verbose:
-        monitor_cmd.append("--verbose")
+        monitor_args.append("--verbose")
 
-    monitor_process = subprocess.Popen(monitor_cmd, preexec_fn=os.setsid)
-    CHILD_PROCESSES.append(monitor_process)
+    # Temporarily replace sys.argv to pass arguments to human_trial_monitor.main()
+    original_argv = sys.argv
+    sys.argv = [human_trial_monitor.__file__] + monitor_args
+    try:
+        monitor_exit_code = human_trial_monitor.main()
+        if monitor_exit_code != 0:
+            print(f"Human Trial Monitor exited with code {monitor_exit_code}", file=sys.stderr)
+            # Decide if you want to exit the launcher or continue
+            # For now, we'll let the dashboard continue running
+    finally:
+        sys.argv = original_argv # Restore sys.argv
 
     print("Services are running:")
     print(f"- Dashboard: http://localhost:{args.port}")
@@ -251,9 +261,10 @@ def main():
             if dashboard_process.poll() is not None:
                 print("Optuna Dashboard process terminated unexpectedly.", file=sys.stderr)
                 break
-            if monitor_process.poll() is not None:
-                print("Human Trial Monitor process terminated unexpectedly.", file=sys.stderr)
-                break
+            # The monitor is now in-process, so no separate process to check
+            # if monitor_process.poll() is not None:
+            #     print("Human Trial Monitor process terminated unexpectedly.", file=sys.stderr)
+            #     break
     except KeyboardInterrupt:
         print("Ctrl+C received. Stopping services...")
     finally:

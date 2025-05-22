@@ -369,7 +369,7 @@ def main():
             # If --use-cert was explicitly given, cert_path should already be set or default
             if not cert_path:
                 logger.error("Error: --use-cert specified but no --cert-path provided.")
-                sys.exit(1)
+                return 1
             if not os.path.exists(cert_path):
                 logger.error(f"Error: Certificate file not found at {cert_path}")
                 sys.exit(1)
@@ -421,7 +421,7 @@ def main():
             all_study_summaries = optuna.get_all_study_summaries(storage=db_url)
             if not all_study_summaries:
                 logger.warning("No studies found in the database to monitor.")
-                sys.exit(0)
+                return 0
             studies_to_monitor = [s.study_name for s in all_study_summaries]
             logger.info(f"Found {len(studies_to_monitor)} studies. Starting monitors for all of them...")
 
@@ -448,7 +448,7 @@ def main():
 
         if not monitors:
              logger.warning("No monitors started. Exiting.")
-             sys.exit(0)
+             return 0
 
         # Keep the script running
         logger.info(f"Monitor(s) running. Configuration:")
@@ -476,6 +476,5 @@ def main():
         logger.info("All monitors stopped. Exiting.")
         sys.exit(0)
 
-
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

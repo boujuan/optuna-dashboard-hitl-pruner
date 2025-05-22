@@ -28,20 +28,28 @@ This project provides a robust and generalized launcher for the Optuna Dashboard
 2.  **Ensure Miniforge3 is set up**: The `run_optuna_miniforge.sh` script assumes Miniforge3 is installed in your home directory (`$HOME/miniforge3`) by default. You can specify a different path using the `--conda-path` argument.
 3.  **Activate your Conda environment**: The `run_optuna_miniforge.sh` script will activate the `wf_env` environment by default, or the one specified by the `CONDA_ENV` environment variable.
 
+## Installation as a Python Package
+
+You can install this project as a Python package using `pip`. This will make the `optuna-monitor` command available in your Python environment.
+
+```bash
+pip install .
+```
+
 ## Usage
 
-The main entry point is `run_optuna_miniforge.sh`, which handles environment activation and then calls `optuna_dashboard_launcher.py` with your specified arguments.
+The main entry point is `run_optuna_miniforge.sh`, which handles environment activation and then calls the `optuna-monitor` command with your specified arguments.
 
 ### `run_optuna_miniforge.sh` Arguments
 
 *   `--conda-path PATH`: Specify the base installation path of your Conda environment (e.g., `/opt/conda`). Defaults to `$HOME/miniforge3`.
 
-### `optuna_dashboard_launcher.py` Arguments
+### `optuna-monitor` Arguments
 
-Here's a list of available options for `optuna_dashboard_launcher.py`:
+Here's a list of available options for `optuna-monitor`:
 
 ```
-Usage: optuna_dashboard_launcher.py [-h] [--db-url DB_URL] [--db-host DB_HOST] [--db-port DB_PORT] [--db-name DB_NAME] [--db-user DB_USER] [--db-password DB_PASSWORD] [--db-type {postgresql,mysql,sqlite}] [--cert-path CERT_PATH] [--use-cert] [--no-cert] [--port PORT] [--study [STUDY ...]] [--interval INTERVAL] [--prune-pattern PRUNE_PATTERN] [--fail-pattern FAIL_PATTERN] [--dry-run] [--all-trials] [--verbose] [--thorium-app | --browser-path BROWSER_PATH]
+Usage: optuna-monitor [-h] [--db-url DB_URL] [--db-host DB_HOST] [--db-port DB_PORT] [--db-name DB_NAME] [--db-user DB_USER] [--db-password DB_PASSWORD] [--db-type {postgresql,mysql,sqlite}] [--cert-path CERT_PATH] [--use-cert] [--no-cert] [--port PORT] [--study [STUDY ...]] [--interval INTERVAL] [--prune-pattern PRUNE_PATTERN] [--fail-pattern FAIL_PATTERN] [--dry-run] [--all-trials] [--verbose] [--thorium-app | --browser-path BROWSER_PATH]
 
 Launch Optuna Dashboard and Human-in-the-Loop Monitor.
 
@@ -124,7 +132,3 @@ Once the Optuna Dashboard and the Human Trial Monitor are running:
 4.  The monitor script will detect this note change within the specified `--interval` and update the trial's state in the Optuna storage.
 
 **Note on Dry-Run Mode**: If you start the monitor with `--dry-run`, it will log what changes it *would* make without actually modifying the trial states. This is useful for testing.
-
-## Python Package Considerations
-
-The current structure, with `optuna_dashboard_launcher.py` handling orchestration and `human_trial_monitor.py` containing the core monitoring logic, makes it easier to package the Python components. `human_trial_monitor.py` can be directly imported and used, and `optuna_dashboard_launcher.py` can serve as a console script entry point in a `setup.py` or `pyproject.toml` file. This would allow users to install the project via `pip` and run it directly from their Python environment, abstracting away the shell script orchestration for the Python-specific parts.
