@@ -8,9 +8,14 @@ import time
 import atexit
 import signal
 from . import human_trial_monitor # Import the human_trial_monitor module
+import threading
+import socket
 
 # List to keep track of child processes
 CHILD_PROCESSES = []
+
+# SSH tunnel process
+SSH_TUNNEL_PROCESS = None
 
 def cleanup_processes():
     """Terminate all child processes."""
@@ -23,6 +28,17 @@ def cleanup_processes():
             if p.poll() is None:
                 print(f"Killing process {p.pid}...")
                 p.kill()
+    
+    # Clean up SSH tunnel if it exists
+    global SSH_TUNNEL_PROCESS
+    if SSH_TUNNEL_PROCESS and SSH_TUNNEL_PROCESS.poll() is None:
+        print("Terminating SSH tunnel...")
+        SSH_TUNNEL_PROCESS.terminate()
+        SSH_TUNNEL_PROCESS.wait(timeout=5)
+        if SSH_TUNNEL_PROCESS.poll() is None:
+            print("Killing SSH tunnel...")
+            SSH_TUNNEL_PROCESS.kill()
+    
     print("Cleaned up and stopped services.")
 
 # Register cleanup function to be called on exit
@@ -54,6 +70,60 @@ def install_package(package_name):
         print(f"Error installing {package_name}: {e}", file=sys.stderr)
         sys.exit(1)
 
+def find_free_port():
+    """Find a free port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
+
+def create_ssh_tunnel(ssh_host, ssh_user, ssh_port, db_host, db_port, ssh_key_path=None, ssh_password=None):
+    """Create an SSH tunnel and return the local port."""
+    global SSH_TUNNEL_PROCESS
+    
+    local_port = find_free_port()
+    
+    # Build SSH command
+    ssh_cmd = ["ssh", "-N", "-L", f"{local_port}:{db_host}:{db_port}"]
+    
+    if ssh_key_path:
+        ssh_cmd.extend(["-i", ssh_key_path])
+    
+    if ssh_port != 22:
+        ssh_cmd.extend(["-p", str(ssh_port)])
+    
+    # Add connection options for better reliability
+    ssh_cmd.extend([
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "ServerAliveInterval=60",
+        "-o", "ServerAliveCountMax=3"
+    ])
+    
+    ssh_cmd.append(f"{ssh_user}@{ssh_host}")
+    
+    print(f"Creating SSH tunnel: {' '.join(ssh_cmd)}")
+    
+    try:
+        SSH_TUNNEL_PROCESS = subprocess.Popen(ssh_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        
+        # Wait a moment for the tunnel to establish
+        time.sleep(3)
+        
+        # Check if the process is still running
+        if SSH_TUNNEL_PROCESS.poll() is not None:
+            stdout, stderr = SSH_TUNNEL_PROCESS.communicate()
+            print(f"SSH tunnel failed to start. Error: {stderr.decode()}", file=sys.stderr)
+            sys.exit(1)
+        
+        print(f"SSH tunnel established on local port {local_port}")
+        return local_port
+        
+    except Exception as e:
+        print(f"Error creating SSH tunnel: {e}", file=sys.stderr)
+        sys.exit(1)
+
 def main():
     parser = argparse.ArgumentParser(description="Launch Optuna Dashboard and Human-in-the-Loop Monitor.")
 
@@ -69,6 +139,14 @@ def main():
     db_group.add_argument("--cert-path", help="Path to CA certificate file")
     db_group.add_argument("--use-cert", action="store_true", help="Explicitly use the certificate specified by --cert-path (overrides --no-cert)")
     db_group.add_argument("--no-cert", action="store_true", help="Explicitly disable certificate usage (overrides --cert-path and default detection)")
+    
+    # SSH tunnel options
+    ssh_group = parser.add_argument_group('SSH tunnel options')
+    ssh_group.add_argument("--ssh-host", help="SSH host for tunneling (e.g., jump.example.com)")
+    ssh_group.add_argument("--ssh-user", help="SSH username for tunneling")
+    ssh_group.add_argument("--ssh-port", type=int, default=22, help="SSH port for tunneling (default: 22)")
+    ssh_group.add_argument("--ssh-key", help="Path to SSH private key file")
+    ssh_group.add_argument("--ssh-password", help="SSH password (not recommended, use SSH keys instead)")
 
     # Monitor configuration
     monitor_group = parser.add_argument_group('Monitor configuration')
@@ -87,9 +165,55 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate mutual exclusivity (argparse handles this, but good for clarity)
-    # Removed --thorium-app, so no longer mutually exclusive with --browser-path
+    # Validate SSH tunnel arguments
+    if (args.ssh_host or args.ssh_user) and not (args.ssh_host and args.ssh_user):
+        print("Error: Both --ssh-host and --ssh-user must be specified when using SSH tunneling", file=sys.stderr)
+        sys.exit(1)
+    
+    if args.ssh_key and args.ssh_password:
+        print("Warning: Both SSH key and password specified. SSH key will be used.", file=sys.stderr)
+    
+    if args.ssh_host and args.ssh_user and not args.ssh_key and not args.ssh_password:
+        print("Warning: No SSH authentication method specified. SSH agent or default key will be used.", file=sys.stderr)
 
+    # Handle SSH tunneling if specified
+    original_db_host = args.db_host
+    original_db_port = args.db_port
+    
+    if args.ssh_host and args.ssh_user:
+        if not args.db_host or args.db_host == "localhost":
+            print("Error: When using SSH tunnel, you must specify the actual database host with --db-host", file=sys.stderr)
+            sys.exit(1)
+        
+        # Set default port if not provided
+        if not original_db_port:
+            if args.db_type == "postgresql":
+                original_db_port = "5432"
+            elif args.db_type == "mysql":
+                original_db_port = "3306"
+            else:
+                print(f"Warning: No default port for DB_TYPE: {args.db_type}. Please specify --db-port.", file=sys.stderr)
+                sys.exit(1)
+        
+        print(f"Setting up SSH tunnel to {args.ssh_user}@{args.ssh_host} for database {original_db_host}:{original_db_port}")
+        
+        # Create SSH tunnel
+        local_port = create_ssh_tunnel(
+            ssh_host=args.ssh_host,
+            ssh_user=args.ssh_user,
+            ssh_port=args.ssh_port,
+            db_host=original_db_host,
+            db_port=original_db_port,
+            ssh_key_path=args.ssh_key,
+            ssh_password=args.ssh_password
+        )
+        
+        # Update connection parameters to use the tunnel
+        args.db_host = "localhost"
+        args.db_port = str(local_port)
+        
+        print(f"Database connection will use SSH tunnel: localhost:{local_port} -> {original_db_host}:{original_db_port}")
+    
     # Determine DB URL
     db_url = args.db_url
     if not db_url:
