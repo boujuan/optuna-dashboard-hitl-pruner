@@ -53,7 +53,14 @@ echo "Environment activated, starting services..."
 
 # Run the main script with all parameters and pass the conda environment name
 # The --conda-env argument is handled by this script and not passed to the Python launcher.
-optuna-monitor "$@"
+# Filter out --thorium-app if it's still present (should be removed from batch script)
+FILTERED_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" != "--thorium-app" ]]; then
+        FILTERED_ARGS+=("$arg")
+    fi
+done
+optuna-monitor "${FILTERED_ARGS[@]}"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting
