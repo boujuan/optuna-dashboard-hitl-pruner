@@ -52,7 +52,8 @@ conda activate $CONDA_ENV
 echo "Environment activated, starting services..."
 
 # Run the main script with all parameters and pass the conda environment name
-"$(dirname "$0")"/run_optuna_with_monitor.sh --conda-env "$CONDA_ENV" "$@"
+# The --conda-env argument is handled by this script and not passed to the Python launcher.
+"$(dirname "$0")"/optuna_dashboard_launcher.py "$@"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting
