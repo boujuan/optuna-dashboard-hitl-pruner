@@ -1,8 +1,9 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 
 # Default conda environment name
 CONDA_ENV="${CONDA_ENV:-wf_env}"  # Use environment variable or default to wf_env
 
+CONDA_BASE_PATH="$HOME/miniforge3" # Default Conda installation path
 echo "Starting Optuna Dashboard with Human-in-the-Loop monitoring..."
 
 # Function to handle errors
@@ -22,15 +23,36 @@ handle_error() {
 trap 'handle_error' EXIT
 
 # Activate miniforge environment
-echo "Activating $CONDA_ENV in Miniforge3..."
-export PATH="$HOME/miniforge3/bin:$PATH"
-source "$HOME/miniforge3/etc/profile.d/conda.sh"
+
+# Parse command line arguments for this script
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --conda-path)
+            CONDA_BASE_PATH="$2"
+            shift 2
+            ;;
+        *)
+            # Pass other arguments to the next script
+            break
+            ;;
+    esac
+done
+
+echo "Activating $CONDA_ENV from $CONDA_BASE_PATH..."
+
+if [ ! -d "$CONDA_BASE_PATH" ]; then
+    echo "Error: Conda installation not found at $CONDA_BASE_PATH. Please specify the correct path with --conda-path."
+    exit 1
+fi
+
+export PATH="$CONDA_BASE_PATH/bin:$PATH"
+source "$CONDA_BASE_PATH/etc/profile.d/conda.sh"
 conda activate $CONDA_ENV
 
 echo "Environment activated, starting services..."
 
 # Run the main script with all parameters and pass the conda environment name
-/home/$(whoami)/optuna-dashboard/run_optuna_with_monitor.sh --conda-env "$CONDA_ENV" "$@"
+"$(dirname "$0")"/run_optuna_with_monitor.sh --conda-env "$CONDA_ENV" "$@"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting

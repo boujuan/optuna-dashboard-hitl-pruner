@@ -7,6 +7,7 @@ import sys
 import argparse
 import logging
 import re
+import os
 from optuna.trial import TrialState
 # Import necessary functions directly from the internal module
 from optuna_dashboard._note import get_note_from_system_attrs, note_ver_key
@@ -324,11 +325,14 @@ def main():
     db_group.add_argument("--db-name", help="Database name")
     db_group.add_argument("--db-user", help="Database username")
     db_group.add_argument("--db-password", help="Database password")
+    db_group.add_argument("--db-type", default="postgresql", help="Database type (e.g., postgresql, mysql, sqlite) (default: postgresql)")
     db_group.add_argument("--cert-path", help="Path to CA certificate file")
+    db_group.add_argument("--use-cert", action="store_true", help="Explicitly use the certificate specified by --cert-path")
+    db_group.add_argument("--no-cert", action="store_true", help="Explicitly disable certificate usage")
 
     # Monitor configuration
     monitor_group = parser.add_argument_group('Monitor configuration')
-    monitor_group.add_argument("--study", help="Specific study name to monitor (default: monitor all studies)")
+    monitor_group.add_argument("--study", nargs='*', help="Specific study name(s) to monitor (default: monitor all studies if none specified)")
     monitor_group.add_argument("--interval", type=int, default=10, help="Check interval in seconds (default: 10)") # Increased default
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
     monitor_group.add_argument("--fail-pattern", default="FAIL", help="Regex pattern to detect FAIL commands (default: 'FAIL')")
@@ -354,12 +358,48 @@ def main():
 
     # Determine the database URL
     db_url = args.db_url
-    if not db_url and args.db_host and args.db_port and args.db_name and args.db_user and args.db_password:
-        # Construct DB URL from components
-        if args.cert_path:
-            db_url = f"postgresql://{args.db_user}:{args.db_password}@{args.db_host}:{args.db_port}/{args.db_name}?sslmode=require&sslrootcert={args.cert_path}"
+    if not db_url:
+        # Determine if certificate should be used
+        use_cert = False
+        cert_path = args.cert_path
+        if args.no_cert:
+            use_cert = False
+            cert_path = "" # Clear path if no-cert is specified
+        elif args.use_cert:
+            # If --use-cert was explicitly given, cert_path should already be set or default
+            if not cert_path:
+                logger.error("Error: --use-cert specified but no --cert-path provided.")
+                sys.exit(1)
+            if not os.path.exists(cert_path):
+                logger.error(f"Error: Certificate file not found at {cert_path}")
+                sys.exit(1)
+            use_cert = True
         else:
-            db_url = f"postgresql://{args.db_user}:{args.db_password}@{args.db_host}:{args.db_port}/{args.db_name}"
+            # If neither --use-cert nor --no-cert was specified, check for default cert
+            default_cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cert", "ca.pem")
+            if os.path.exists(default_cert_path):
+                cert_path = default_cert_path
+                use_cert = True
+                logger.info(f"Automatically using default CA certificate at {cert_path}")
+            else:
+                cert_path = "" # Ensure it's empty if no cert is found/used
+                use_cert = False
+
+        if args.db_host and args.db_port and args.db_name and args.db_user and args.db_password:
+            # Construct DB URL from components
+            if args.db_type == "postgresql":
+                db_url = f"postgresql://{args.db_user}:{args.db_password}@{args.db_host}:{args.db_port}/{args.db_name}"
+                if use_cert and cert_path:
+                    db_url = f"{db_url}?sslmode=require&sslrootcert={cert_path}"
+            elif args.db_type == "mysql":
+                db_url = f"mysql://{args.db_user}:{args.db_password}@{args.db_host}:{args.db_port}/{args.db_name}"
+                if use_cert and cert_path:
+                    db_url = f"{db_url}?ssl_ca={cert_path}"
+            elif args.db_type == "sqlite":
+                db_url = f"sqlite:///{args.db_name}"
+            else:
+                logger.error(f"Unsupported database type: {args.db_type}")
+                sys.exit(1)
 
     if not db_url:
         logger.error("Database URL is required. Provide either --db-url or all of: --db-host, --db-port, --db-name, --db-user, --db-password")
@@ -370,46 +410,38 @@ def main():
 
     monitors = []
     try:
+        studies_to_monitor = []
         if args.study:
-            # Monitor a specific study
-            logger.info(f"Loading study: {args.study}")
-            study = optuna.load_study(study_name=args.study, storage=db_url)
-            monitor = HumanTrialStateMonitor(
-                study,
-                check_interval=args.interval,
-                prune_pattern=args.prune_pattern,
-                fail_pattern=args.fail_pattern,
-                dry_run=args.dry_run,
-                only_active_trials=args.only_active_trials
-            )
-            monitor.start()
-            monitors.append(monitor)
-            logger.info(f"Started monitoring for study: {args.study}")
+            # Monitor specific studies provided by argument
+            studies_to_monitor = args.study
+            logger.info(f"Monitoring specified studies: {', '.join(studies_to_monitor)}")
         else:
             # Monitor all studies in the database
-            logger.info("Loading all studies from the database...")
-            studies = optuna.get_all_study_summaries(storage=db_url)
-
-            if not studies:
+            logger.info("No specific studies provided. Loading all studies from the database...")
+            all_study_summaries = optuna.get_all_study_summaries(storage=db_url)
+            if not all_study_summaries:
                 logger.warning("No studies found in the database to monitor.")
-            else:
-                 logger.info(f"Found {len(studies)} studies. Starting monitors...")
-                 for study_summary in studies:
-                     try:
-                         study = optuna.load_study(study_name=study_summary.study_name, storage=db_url)
-                         monitor = HumanTrialStateMonitor(
-                             study,
-                             check_interval=args.interval,
-                             prune_pattern=args.prune_pattern,
-                             fail_pattern=args.fail_pattern,
-                             dry_run=args.dry_run,
-                             only_active_trials=args.only_active_trials
-                         )
-                         monitor.start()
-                         monitors.append(monitor)
-                         logger.info(f"Started monitoring for study: {study.study_name}")
-                     except Exception as load_err:
-                          logger.error(f"Failed to load or start monitor for study '{study_summary.study_name}': {load_err}")
+                sys.exit(0)
+            studies_to_monitor = [s.study_name for s in all_study_summaries]
+            logger.info(f"Found {len(studies_to_monitor)} studies. Starting monitors for all of them...")
+
+        for study_name in studies_to_monitor:
+            try:
+                logger.info(f"Loading study: {study_name}")
+                study = optuna.load_study(study_name=study_name, storage=db_url)
+                monitor = HumanTrialStateMonitor(
+                    study,
+                    check_interval=args.interval,
+                    prune_pattern=args.prune_pattern,
+                    fail_pattern=args.fail_pattern,
+                    dry_run=args.dry_run,
+                    only_active_trials=args.only_active_trials
+                )
+                monitor.start()
+                monitors.append(monitor)
+                logger.info(f"Started monitoring for study: {study_name}")
+            except Exception as load_err:
+                logger.error(f"Failed to load or start monitor for study '{study_name}': {load_err}")
 
             if monitors:
                 logger.info(f"Successfully started monitoring for {len(monitors)} studies.")
