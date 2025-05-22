@@ -24,7 +24,7 @@ trap 'handle_error' EXIT
 
 # Activate miniforge environment
 
-# Parse command line arguments for this script
+LAUNCHER_ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
         --conda-path)
@@ -36,8 +36,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         *)
-            # Pass other arguments to the next script
-            break
+            LAUNCHER_ARGS+=("$1")
+            shift
             ;;
     esac
 done
@@ -56,28 +56,7 @@ conda activate $CONDA_ENV
 echo "Environment activated, starting services..."
 
 # Run the main script with all parameters and pass the conda environment name
-# The --conda-env argument is handled by this script and not passed to the Python launcher.
-FILTERED_ARGS=()
-skip_next=false
-for arg in "$@"; do
-    if [[ "$skip_next" == true ]]; then
-        skip_next=false
-        continue
-    fi
-    
-    if [[ "$arg" == "--thorium-app" ]]; then
-        continue
-    elif [[ "$arg" == "--conda-env" ]]; then
-        skip_next=true
-        continue
-    elif [[ "$arg" == "--conda-path" ]]; then
-        skip_next=true
-        continue
-    else
-        FILTERED_ARGS+=("$arg")
-    fi
-done
-python3 -m optuna_monitor.launcher "${FILTERED_ARGS[@]}"
+python3 -m optuna_monitor.launcher "${LAUNCHER_ARGS[@]}"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting
