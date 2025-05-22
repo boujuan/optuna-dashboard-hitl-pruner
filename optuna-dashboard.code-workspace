@@ -4,8 +4,7 @@
 			"path": "."
 		},
 		{
-			"name": "optuna-dashboard",
-			"path": "../optuna-dashboard-fork/optuna-dashboard"
+			"path": "../optuna-hparam-importance"
 		}
 	],
 	"settings": {}
