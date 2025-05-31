@@ -137,7 +137,7 @@ def kill_process_on_port(port):
     
     # Also try fuser which is good at finding all processes
     try:
-        result = subprocess.run(['fuser', f'{port}/tcp'], capture_output=True, text=True, stderr=subprocess.STDOUT)
+        result = subprocess.run(['fuser', f'{port}/tcp'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         if result.stdout:
             # fuser output format: "8080/tcp:   12345 12346 12347"
             parts = result.stdout.split()
