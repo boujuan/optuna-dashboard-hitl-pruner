@@ -5,11 +5,13 @@ This project provides a robust and generalized launcher for the Optuna Dashboard
 ## Features
 
 *   **Human-in-the-Loop Pruning/Failing**: Easily mark trials as "pruned" or "failed" by adding specific keywords (`PRUNE` or `FAIL`) to their notes in the Optuna Dashboard. The monitor automatically detects these changes and updates the trial state. This can be done retroactively.
+*   **🆕 Chrome Extension for Quick Actions**: Included Chrome extension adds hover buttons to trials for one-click pruning/failing - much faster than manual note editing!
 *   **Cross-Platform Compatibility**: Designed to work seamlessly across Windows (via WSL), Linux, and macOS environments.
 *   **Multiple Database Backends**: Supports PostgreSQL, MySQL, and SQLite as Optuna storage backends.
 *   **SSH Tunnel Support**: Securely connect to remote databases through SSH jump servers or bastion hosts.
 *   **Flexible Certificate Handling**: Provides options to explicitly use, disable, or automatically detect SSL certificates for database connections.
 *   **Configurable Browser Launch**: Offers options to automatically launch a browser to the Optuna Dashboard.
+*   **Port Conflict Resolution**: Automatic port conflict detection and resolution with `--force-port` option.
 
 ## Prerequisites
 
@@ -220,7 +222,9 @@ The SSH tunnel feature is fully compatible with all existing database and certif
 
 ## Human-in-the-Loop Monitoring
 
-Once the Optuna Dashboard and the Human Trial Monitor are running:
+Once the Optuna Dashboard and the Human Trial Monitor are running, you have two ways to prune or fail trials:
+
+### Method 1: Manual Note Editing (Traditional)
 
 1.  Open the Optuna Dashboard in your browser (usually `http://localhost:8080`).
 2.  Navigate to the study and trial you wish to modify.
@@ -228,5 +232,49 @@ Once the Optuna Dashboard and the Human Trial Monitor are running:
     *   `PRUNE`: To mark the trial as `PRUNED`.
     *   `FAIL`: To mark the trial as `FAIL`.
 4.  The monitor script will detect this note change within the specified `--interval` and update the trial's state in the Optuna storage.
+
+### Method 2: Chrome Extension (Recommended)
+
+For a much faster and more intuitive experience, use the included Chrome extension:
+
+1. **Install the Extension**:
+   - Open Chrome/Thorium and go to `chrome://extensions/`
+   - Enable "Developer mode" (toggle in top right)
+   - Click "Load unpacked" and select the `chrome-extension` folder
+
+2. **Configure Your Browser Launch** (for Windows WSL users):
+   ```batch
+   start "" "C:\...\chrome_proxy.exe" --load-extension="\\wsl$\Debian\home\your-user\optuna-dashboard-hitl-pruner\chrome-extension" --app="http://localhost:8080"
+   ```
+
+3. **Quick Actions**:
+   - **Trial List**: Hover over any trial to see ✂️ (Prune) and ❌ (Fail) buttons
+   - **Trial Details**: Floating action buttons appear when viewing a trial's details
+   - **One Click**: Click a button to instantly add "PRUNE" or "FAIL" to the trial's note
+
+#### Extension Features:
+- **Speed**: One click vs navigate → edit → type → save
+- **Consistency**: Always adds the exact keywords your monitor expects  
+- **Visual Clarity**: Buttons only appear on hover, keeping the UI clean
+- **Error Prevention**: No typos in keywords
+- **Seamless Integration**: Works with your existing monitor system
+
+For detailed extension installation and usage instructions, see [`chrome-extension/README.md`](chrome-extension/README.md).
+
+#### Packaging the Extension
+
+To create a packaged extension (.crx file) for distribution:
+
+1. **For Development**: Use "Load unpacked" as described above
+2. **For Distribution**: 
+   - Go to `chrome://extensions/`
+   - Click "Pack extension"
+   - Select the `chrome-extension` folder
+   - Chrome will create a `.crx` file and `.pem` key
+
+3. **For WSL Users**: The extension folder is ready to use directly:
+   ```batch
+   --load-extension="\\wsl$\Debian\home\your-user\optuna-dashboard-hitl-pruner\chrome-extension"
+   ```
 
 **Note on Dry-Run Mode**: If you start the monitor with `--dry-run`, it will log what changes it *would* make without actually modifying the trial states. This is useful for testing.
