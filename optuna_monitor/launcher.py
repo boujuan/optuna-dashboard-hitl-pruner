@@ -118,6 +118,7 @@ def wait_for_port_available(port, timeout=30):
     print(f"Timeout waiting for port {port} to become available")
     return False
 
+
 def kill_process_on_port(port):
     """Try to kill ALL processes using the specified port."""
     killed_any = False
@@ -507,9 +508,8 @@ def main():
 
     # Launch Optuna Dashboard
     print(f"Starting optuna-dashboard on port {args.port}...")
-    # Call optuna-dashboard directly as a command
-    dashboard_cmd = ["optuna-dashboard", db_url, "--port", str(args.port)]
-    dashboard_process = subprocess.Popen(dashboard_cmd, preexec_fn=os.setsid) # Use os.setsid to create a new process group
+    dashboard_cmd = ["optuna-dashboard", db_url, "--port", str(args.port), "--host", "0.0.0.0"]
+    dashboard_process = subprocess.Popen(dashboard_cmd, preexec_fn=os.setsid)
     CHILD_PROCESSES.append(dashboard_process)
     print("Loading all studies from the database")
 
@@ -519,11 +519,7 @@ def main():
     for _ in range(max_retries):
         time.sleep(1)
         if dashboard_process.poll() is not None:
-            # Process died
-            _, stderr = dashboard_process.communicate()
             print(f"Error: Optuna dashboard failed to start", file=sys.stderr)
-            if stderr:
-                print(f"Error details: {stderr.decode()}", file=sys.stderr)
             sys.exit(1)
         
         # Check if port is now in use (dashboard started successfully)

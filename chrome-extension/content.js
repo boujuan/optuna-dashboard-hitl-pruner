@@ -5,7 +5,7 @@
 
 // Configuration
 const CONFIG = {
-  checkInterval: 1000, // Check for new trials every second
+  checkInterval: 5000, // Check for new trials every 5 seconds (reduced from 1 second)
   apiTimeout: 5000,
   buttonStyles: {
     prune: {
@@ -23,6 +23,10 @@ const CONFIG = {
 
 // Track processed trials to avoid duplicate buttons
 const processedTrials = new Set();
+// Track if floating buttons are already added to avoid spam
+let floatingButtonsAdded = false;
+// Track last URL to detect navigation
+let lastUrl = location.href;
 
 /**
  * Extract study ID from the current URL
@@ -41,7 +45,6 @@ function getStudyIdFromUrl() {
                   window.location.search.match(pattern) ||
                   window.location.href.match(pattern);
     if (match) {
-      console.log(`Found study ID ${match[1]} using pattern ${pattern}`);
       return match[1];
     }
   }
@@ -52,129 +55,67 @@ function getStudyIdFromUrl() {
                       pageText.match(/study[_-]?id[:\s]+(\d+)/i);
   
   if (contentMatch) {
-    console.log(`Found study ID ${contentMatch[1]} from page content`);
     return contentMatch[1];
   }
   
-  console.log('Could not determine study ID from URL or content');
-  console.log('Current URL:', window.location.href);
   return null;
 }
 
 /**
- * Make API call to update trial note
+ * Update trial note using optuna-dashboard API
  */
 async function updateTrialNote(studyId, trialId, action) {
   try {
-    console.log(`Attempting to update trial ${trialId} with action: ${action}`);
-    console.log(`Study ID: ${studyId}, Current URL: ${window.location.href}`);
+    const endpoint = `/api/studies/${studyId}/${trialId}/note`;
+    const actionCommand = action.toUpperCase();
     
-    // Try different API endpoint patterns that Optuna Dashboard might use
-    const possibleEndpoints = [
-      `/api/studies/${studyId}/trials/${trialId}/note`,
-      `/api/studies/${studyId}/trials/${trialId}/user_attrs/note`,
-      `/studies/${studyId}/trials/${trialId}/note`,
-      `/api/trials/${trialId}/note`,
-    ];
-
-    // First, try to get the current note
-    let currentNote = '';
-    let noteVersion = 0;
-    let workingGetEndpoint = null;
+    // First, get the current version from the API
+    let currentVersion = 0;
     
-    for (const endpoint of possibleEndpoints) {
-      try {
-        console.log(`Trying GET ${endpoint}`);
-        const noteResponse = await fetch(endpoint, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          }
-        });
-
-        console.log(`GET ${endpoint} response: ${noteResponse.status}`);
-        if (noteResponse.ok) {
-          const noteData = await noteResponse.json();
-          console.log(`Note data from ${endpoint}:`, noteData);
-          currentNote = noteData.body || noteData.note || noteData.value || '';
-          noteVersion = noteData.version || 0;
-          workingGetEndpoint = endpoint;
-          console.log(`Successfully got note from ${endpoint}: "${currentNote}"`);
-          break;
-        }
-      } catch (e) {
-        console.log(`Failed to get note from ${endpoint}:`, e);
+    const getResponse = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
       }
+    });
+    
+    if (getResponse.ok) {
+      const noteData = await getResponse.json();
+      currentVersion = noteData.version || 0;
+    } else if (getResponse.status === 404) {
+      // Note doesn't exist yet, version will be 0
+      currentVersion = 0;
+    } else {
+      throw new Error(`Failed to get current note version: ${getResponse.status} ${getResponse.statusText}`);
     }
-
-    // Append the action to the note
-    const newNote = currentNote + (currentNote ? '\n\n' : '') + action.toUpperCase();
-    console.log(`New note content: "${newNote}"`);
-
-    // Try to update the note using the working endpoint first, then others
-    const endpointsToTry = workingGetEndpoint ? 
-      [workingGetEndpoint, ...possibleEndpoints.filter(e => e !== workingGetEndpoint)] : 
-      possibleEndpoints;
-
-    for (const endpoint of endpointsToTry) {
-      try {
-        console.log(`Trying PUT ${endpoint}`);
-        const updateResponse = await fetch(endpoint, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            version: noteVersion,
-            body: newNote,
-            note: newNote,
-            value: newNote,
-          })
-        });
-
-        console.log(`PUT ${endpoint} response: ${updateResponse.status}`);
-        if (updateResponse.ok) {
-          console.log(`Successfully updated note via ${endpoint}`);
-          return true;
-        } else {
-          const errorText = await updateResponse.text();
-          console.log(`PUT ${endpoint} failed: ${updateResponse.status} - ${errorText}`);
-        }
-      } catch (e) {
-        console.log(`Error with PUT ${endpoint}:`, e);
-      }
+    
+    // Overwrite the note completely with just our action command
+    const updateData = {
+      body: actionCommand,
+      version: currentVersion + 1
+    };
+    
+    const updateResponse = await fetch(endpoint, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updateData)
+    });
+    
+    if (updateResponse.ok) {
+      showNotification(`Trial marked for ${action} - monitor will process it shortly!`, 'success');
+      return true;
+    } else if (updateResponse.status === 409) {
+      // Version conflict - try once more with fresh version
+      await new Promise(resolve => setTimeout(resolve, 500));
+      return await updateTrialNote(studyId, trialId, action);
+    } else {
+      const errorText = await updateResponse.text();
+      throw new Error(`Failed to update note: ${updateResponse.status} ${errorText}`);
     }
-
-    // If PUT fails, try POST
-    for (const endpoint of endpointsToTry) {
-      try {
-        console.log(`Trying POST ${endpoint}`);
-        const postResponse = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            body: newNote,
-            note: newNote,
-            value: newNote,
-          })
-        });
-
-        console.log(`POST ${endpoint} response: ${postResponse.status}`);
-        if (postResponse.ok) {
-          console.log('Successfully updated note via POST');
-          return true;
-        }
-      } catch (e) {
-        console.log(`POST ${endpoint} failed:`, e);
-      }
-    }
-
-    throw new Error('All API endpoint attempts failed');
-
+    
   } catch (error) {
-    console.error(`Error updating trial note:`, error);
     showNotification(`Failed to update trial: ${error.message}`, 'error');
     return false;
   }
@@ -183,43 +124,76 @@ async function updateTrialNote(studyId, trialId, action) {
 /**
  * Create action button element
  */
-function createActionButton(action, trialNumber, trialId) {
+function createActionButton(action, trialNumber, studyId) {
   const button = document.createElement('button');
   button.className = `optuna-quick-action optuna-quick-${action}`;
   button.innerHTML = `${CONFIG.buttonStyles[action].icon}`;
   button.title = `${action.charAt(0).toUpperCase() + action.slice(1)} Trial ${trialNumber}`;
   
   button.addEventListener('click', async (e) => {
-    console.log(`Button clicked: ${action} for trial ${trialNumber}`);
     e.stopPropagation();
     e.preventDefault();
     
-    const studyId = getStudyIdFromUrl();
-    console.log(`Study ID: ${studyId}`);
-    
     if (!studyId) {
-      console.error('Could not determine study ID');
       showNotification('Error: Could not determine study ID', 'error');
       return;
     }
 
-    console.log(`Disabling button and starting ${action} for trial ${trialNumber}`);
     button.disabled = true;
     button.classList.add('loading');
     
+    // Get the real trial ID from the trial number
+    const trialId = await getTrialIdFromNumber(studyId, trialNumber);
+    
     const success = await updateTrialNote(studyId, trialId, action);
-    console.log(`Update result: ${success}`);
     
     if (success) {
-      showNotification(`Trial ${trialNumber} marked for ${action}`, 'success');
       button.classList.add('success');
-      console.log('Reloading page in 2 seconds...');
-      // Refresh the page after a short delay to show updated state
+      // Reload the page after a delay to show the updated trial state
       setTimeout(() => {
         window.location.reload();
-      }, 2000);
+      }, 3000);
     } else {
-      showNotification(`Failed to ${action} trial ${trialNumber}`, 'error');
+      button.disabled = false;
+      button.classList.remove('loading');
+    }
+  });
+  
+  return button;
+}
+
+/**
+ * Create floating action button element (for trial detail view)
+ */
+function createFloatingActionButton(action, trialNumber, trialId, studyId) {
+  const button = document.createElement('button');
+  button.className = `optuna-quick-action optuna-quick-${action}`;
+  button.innerHTML = `${CONFIG.buttonStyles[action].icon}`;
+  button.title = `${action.charAt(0).toUpperCase() + action.slice(1)} Trial ${trialNumber}`;
+  
+  button.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    if (!studyId) {
+      showNotification('Error: Could not determine study ID', 'error');
+      return;
+    }
+
+    button.disabled = true;
+    button.classList.add('loading');
+    
+    // Get the real trial ID from the trial number (same as list buttons)
+    const resolvedTrialId = await getTrialIdFromNumber(studyId, trialNumber);
+    const success = await updateTrialNote(studyId, resolvedTrialId, action);
+    
+    if (success) {
+      button.classList.add('success');
+      // Reload the page after a delay to show the updated trial state
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+    } else {
       button.disabled = false;
       button.classList.remove('loading');
     }
@@ -231,7 +205,7 @@ function createActionButton(action, trialNumber, trialId) {
 /**
  * Show notification to user
  */
-function showNotification(message, type = 'info') {
+function showNotification(message, type = 'info', duration = 3000) {
   const notification = document.createElement('div');
   notification.className = `optuna-notification optuna-notification-${type}`;
   notification.textContent = message;
@@ -243,13 +217,34 @@ function showNotification(message, type = 'info') {
     notification.classList.add('show');
   }, 10);
   
-  // Remove after 3 seconds
+  // Remove after specified duration
   setTimeout(() => {
     notification.classList.remove('show');
     setTimeout(() => {
       notification.remove();
     }, 300);
-  }, 3000);
+  }, duration);
+}
+
+/**
+ * Get trial ID from trial number by fetching study data
+ */
+async function getTrialIdFromNumber(studyId, trialNumber) {
+  try {
+    const response = await fetch(`/api/studies/${studyId}`);
+    if (response.ok) {
+      const studyData = await response.json();
+      const trial = studyData.trials.find(t => t.number === parseInt(trialNumber));
+      if (trial) {
+        return trial.trial_id;
+      }
+    }
+  } catch (e) {
+    // Fallback silently
+  }
+  
+  // Fallback: assume trial number = trial ID (not always correct but better than nothing)
+  return parseInt(trialNumber);
 }
 
 /**
@@ -278,9 +273,12 @@ function addButtonsToTrialList() {
     }
   });
   
-  console.log(`Found ${trialItems.length} trial items`);
+  // Only log if there's a significant change in trial count (reduced spam)
+  if (Math.abs(trialItems.length - (processedTrials.size || 0)) > 10) {
+    console.log(`Found ${trialItems.length} trial items`);
+  }
   
-  trialItems.forEach(item => {
+  trialItems.forEach(async (item) => {
     const trialText = item.textContent || '';
     const trialMatch = trialText.match(/Trial\s+(\d+)/);
     
@@ -295,18 +293,20 @@ function addButtonsToTrialList() {
     // Skip if buttons already exist
     if (item.querySelector('.optuna-quick-actions-container')) return;
     
-    const trialId = trialNumber;
-    
-    console.log(`Adding buttons to trial ${trialNumber}`);
+    // Get the study ID for API calls
+    const studyId = getStudyIdFromUrl();
+    if (!studyId) {
+      return;
+    }
     
     // Create button container for this specific trial
     const buttonContainer = document.createElement('div');
     buttonContainer.className = 'optuna-quick-actions-container';
     buttonContainer.style.display = 'none'; // Hidden by default
     
-    // Add buttons
-    buttonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
-    buttonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
+    // Add buttons (we'll resolve the real trial ID when the button is clicked)
+    buttonContainer.appendChild(createActionButton('prune', trialNumber, studyId));
+    buttonContainer.appendChild(createActionButton('fail', trialNumber, studyId));
     
     // Position container absolutely within the trial item
     item.style.position = 'relative';
@@ -354,35 +354,70 @@ function addButtonsToTrialList() {
  * Add floating action button for the current trial detail view
  */
 function addFloatingActionButton() {
+  // Skip if buttons already added and URL hasn't changed
+  if (floatingButtonsAdded && location.href === lastUrl) {
+    return;
+  }
+  
   // Remove existing floating buttons first
   removeFloatingActionButtons();
+  floatingButtonsAdded = false;
   
-  // Look for trial detail header - simplified detection
-  const trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+)\s+\(trial_id=(\d+)\)/);
+  // Look for trial detail header - try multiple patterns
+  let trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+)\s+\(trial_id=(\d+)\)/);
   
-  if (!trialHeaderMatch) return;
+  if (!trialHeaderMatch) {
+    // Try alternative patterns
+    trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+).*trial_id[:\s]*(\d+)/);
+  }
   
-  // Also check if we can find typical trial detail elements
+  if (!trialHeaderMatch) {
+    // Try even simpler pattern - check if we're on a trial detail page by URL
+    const urlMatch = window.location.pathname.match(/trials\/(\d+)/);
+    if (urlMatch) {
+      const trialNumber = urlMatch[1];
+      
+      // Try to find trial_id in the page content
+      const trialIdMatch = document.body.textContent.match(/trial_id[:\s]*(\d+)/i) || 
+                          document.body.textContent.match(/id[:\s]*(\d+)/);
+      
+      if (trialIdMatch) {
+        trialHeaderMatch = [null, trialNumber, trialIdMatch[1]];
+      }
+    }
+  }
+  
+  if (!trialHeaderMatch) {
+    return;
+  }
+  
+  // Check if we can find typical trial detail elements
   const hasNoteSection = document.body.textContent.includes('Note');
   const hasValueSection = document.body.textContent.includes('Value');
   const hasParameterSection = document.body.textContent.includes('Parameter');
+  const hasTrialInfo = document.body.textContent.includes('State') || 
+                      document.body.textContent.includes('Duration') ||
+                      window.location.pathname.includes('/trials/');
   
   // If we have trial header and typical detail sections, show floating buttons
-  if (hasNoteSection || hasValueSection || hasParameterSection) {
+  if (hasNoteSection || hasValueSection || hasParameterSection || hasTrialInfo) {
     const trialNumber = trialHeaderMatch[1];
-    const trialId = trialHeaderMatch[2];
+    
+    const studyId = getStudyIdFromUrl();
+    if (!studyId) {
+      return;
+    }
     
     // Create floating action container
     const floatingContainer = document.createElement('div');
     floatingContainer.className = 'optuna-floating-actions';
     
-    // Add prune button
-    const pruneBtn = createActionButton('prune', trialNumber, trialId);
+    // Create floating buttons using the same working function as list buttons
+    const pruneBtn = createActionButton('prune', trialNumber, studyId);
     pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
     pruneBtn.classList.add('floating');
     
-    // Add fail button
-    const failBtn = createActionButton('fail', trialNumber, trialId);
+    const failBtn = createActionButton('fail', trialNumber, studyId);
     failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
     failBtn.classList.add('floating');
     
@@ -390,6 +425,8 @@ function addFloatingActionButton() {
     floatingContainer.appendChild(failBtn);
     
     document.body.appendChild(floatingContainer);
+    floatingButtonsAdded = true;
+    lastUrl = location.href;
   }
 }
 
@@ -401,6 +438,7 @@ function removeFloatingActionButtons() {
   if (existing) {
     existing.remove();
   }
+  floatingButtonsAdded = false;
 }
 
 /**
@@ -442,7 +480,6 @@ if (document.readyState === 'loading') {
 }
 
 // Listen for navigation changes (for single-page app behavior)
-let lastUrl = location.href;
 new MutationObserver(() => {
   const url = location.href;
   if (url !== lastUrl) {
