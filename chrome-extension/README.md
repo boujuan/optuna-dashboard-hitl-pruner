@@ -21,15 +21,14 @@ This Chrome extension adds quick action buttons to the Optuna Dashboard for easy
 
 ## Installation
 
-1. **Create Icons** (Required for Chrome)
-   Since the manifest references PNG icons, you'll need to create them:
+1. **Create Icons** (Required for Chrome Extension)
+   These are just the extension icons that appear in Chrome's extension list. Create simple PNG files:
    ```bash
-   # You can use any image editor to create simple 16x16, 48x48, and 128x128 PNG files
-   # Or use ImageMagick if available:
-   convert -background "#ff6b6b" -fill white -size 16x16 -gravity center label:"✂" icon16.png
-   convert -background "#ff6b6b" -fill white -size 48x48 -gravity center label:"✂" icon48.png
-   convert -background "#ff6b6b" -fill white -size 128x128 -gravity center label:"✂" icon128.png
+   # Create placeholder icons (16x16, 48x48, 128x128 pixels)
+   # You can use any image editor or online icon generator
+   # Or create simple colored squares with the ✂️ emoji
    ```
+   Or just create solid colored squares as placeholders - they only appear in the extension management page.
 
 2. **Load the Extension in Chrome**
    - Open Chrome and go to `chrome://extensions/`
@@ -45,10 +44,13 @@ This Chrome extension adds quick action buttons to the Optuna Dashboard for easy
 
 ## How It Works
 
+**This extension works TOGETHER with your monitor system - it cannot work independently.**
+
 1. The extension monitors the Optuna Dashboard pages
 2. It injects action buttons into the trial list and detail views
-3. When clicked, it makes API calls to update the trial's note
-4. Your existing monitor detects the "PRUNE" or "FAIL" keywords and takes action
+3. When clicked, it makes API calls to update the trial's note with "PRUNE" or "FAIL"
+4. Your existing monitor (human_trial_monitor.py) detects these keywords and takes action
+5. The monitor actually changes the trial state - the extension just adds the keywords
 
 ## Technical Details
 

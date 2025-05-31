@@ -4,13 +4,32 @@
 
 /* Quick action buttons in trial list */
 .optuna-quick-actions-container {
-  position: absolute;
+  position: absolute !important;
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
   display: flex;
   gap: 5px;
   z-index: 10;
+  pointer-events: none; /* Don't interfere with list item clicks */
+  margin: 0 !important;
+  padding: 0 !important;
+  /* Ensure this doesn't affect the parent's layout */
+  width: auto;
+  height: auto;
+}
+
+.optuna-quick-actions-container .optuna-quick-action {
+  pointer-events: auto; /* But buttons themselves are clickable */
+}
+
+/* Ensure trial list items maintain their original spacing */
+[class*="MuiListItem"]:has(.optuna-quick-actions-container),
+li:has(.optuna-quick-actions-container),
+div:has(.optuna-quick-actions-container) {
+  /* Don't let our buttons affect the list item spacing */
+  margin: inherit !important;
+  padding: inherit !important;
 }
 
 .optuna-quick-action {
@@ -44,24 +63,24 @@
   cursor: not-allowed;
 }
 
-/* Prune button */
+/* Prune button - Orange/Yellow */
 .optuna-quick-prune {
-  background-color: #ff6b6b;
-  color: white;
-}
-
-.optuna-quick-prune:hover {
-  background-color: #ff5252;
-}
-
-/* Fail button */
-.optuna-quick-fail {
   background-color: #ffa94d;
   color: white;
 }
 
-.optuna-quick-fail:hover {
+.optuna-quick-prune:hover {
   background-color: #ff922b;
+}
+
+/* Fail button - Red */
+.optuna-quick-fail {
+  background-color: #ff6b6b;
+  color: white;
+}
+
+.optuna-quick-fail:hover {
+  background-color: #ff5252;
 }
 
 /* Loading state */

@@ -9,13 +9,13 @@ const CONFIG = {
   apiTimeout: 5000,
   buttonStyles: {
     prune: {
-      color: '#ff6b6b',
-      hoverColor: '#ff5252',
+      color: '#ffa94d',
+      hoverColor: '#ff922b',
       icon: '✂️'
     },
     fail: {
-      color: '#ffa94d', 
-      hoverColor: '#ff922b',
+      color: '#ff6b6b', 
+      hoverColor: '#ff5252',
       icon: '❌'
     }
   }
@@ -211,8 +211,17 @@ function addButtonsToTrialList() {
     buttonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
     buttonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
     
-    // Insert buttons into the trial item
-    item.style.position = 'relative';
+    // Insert buttons into the trial item without affecting layout
+    const originalPosition = item.style.position;
+    if (!originalPosition || originalPosition === 'static') {
+      item.style.position = 'relative';
+    }
+    
+    // Ensure the item doesn't have extra padding/margin from our buttons
+    buttonContainer.style.position = 'absolute';
+    buttonContainer.style.margin = '0';
+    buttonContainer.style.padding = '0';
+    
     item.appendChild(buttonContainer);
     
     processedTrials.add(trialKey);
@@ -223,16 +232,21 @@ function addButtonsToTrialList() {
  * Add floating action button for the current trial detail view
  */
 function addFloatingActionButton() {
-  // Check if we're on a trial detail page
+  // Remove existing floating buttons first
+  removeFloatingActionButtons();
+  
+  // Check if we're on a trial detail page with the specific pattern
   const trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+)\s+\(trial_id=(\d+)\)/);
   
-  if (!trialHeaderMatch) return;
+  // Also check URL pattern to ensure we're on the correct page
+  const isTrialDetailPage = window.location.pathname.includes('/trials/') && 
+                           !window.location.pathname.endsWith('/trials') &&
+                           trialHeaderMatch;
+  
+  if (!isTrialDetailPage) return;
   
   const trialNumber = trialHeaderMatch[1];
   const trialId = trialHeaderMatch[2];
-  
-  // Check if floating buttons already exist
-  if (document.querySelector('.optuna-floating-actions')) return;
   
   // Create floating action container
   const floatingContainer = document.createElement('div');
@@ -252,6 +266,16 @@ function addFloatingActionButton() {
   floatingContainer.appendChild(failBtn);
   
   document.body.appendChild(floatingContainer);
+}
+
+/**
+ * Remove floating action buttons
+ */
+function removeFloatingActionButtons() {
+  const existing = document.querySelector('.optuna-floating-actions');
+  if (existing) {
+    existing.remove();
+  }
 }
 
 /**
