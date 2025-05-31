@@ -10,3 +10,4 @@ optuna_dashboard_monitor.egg-info
 ssh_tunnel*
 SSH_TUNNEL*
 CLAUDE.md
+**/.docs/**/*
