@@ -52,13 +52,18 @@ This Chrome extension adds quick action buttons to the Optuna Dashboard for easy
 
 ## How It Works
 
-**This extension works TOGETHER with your monitor system - it cannot work independently.**
+**The extension works in two parts:**
 
-1. The extension monitors the Optuna Dashboard pages
-2. It injects action buttons into the trial list and detail views
-3. When clicked, it makes API calls to update the trial's note with "PRUNE" or "FAIL"
-4. Your existing monitor (human_trial_monitor.py) detects these keywords and takes action
-5. The monitor actually changes the trial state - the extension just adds the keywords
+1. **Extension (UI)**: Adds buttons and writes keywords to trial notes
+2. **Monitor (Backend)**: Detects keywords and changes trial states
+
+### What happens when you click a button:
+
+1. **Extension immediately**: Adds "PRUNE" or "FAIL" to the trial's note
+2. **Monitor detects** (when running): Sees the keyword and changes trial state
+3. **If monitor is off**: Keywords remain in notes until monitor starts
+
+**Key Point**: You can click buttons anytime! If the monitor isn't running, the keywords will be processed when you start it later.
 
 ## Technical Details
 

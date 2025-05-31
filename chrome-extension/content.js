@@ -308,17 +308,19 @@ function addButtonsToTrialList() {
     buttonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
     buttonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
     
-    // Position container absolutely within the trial item
-    item.style.position = 'relative';
-    buttonContainer.style.position = 'absolute';
-    buttonContainer.style.right = '10px';
-    buttonContainer.style.top = '50%';
-    buttonContainer.style.transform = 'translateY(-50%)';
-    buttonContainer.style.zIndex = '1000';
+    // Position container as overlay without affecting layout
+    const itemRect = item.getBoundingClientRect();
+    item.style.position = item.style.position || 'relative';
+    
+    buttonContainer.style.position = 'fixed'; // Use fixed instead of absolute
+    buttonContainer.style.right = '20px';
+    buttonContainer.style.top = (itemRect.top + itemRect.height / 2 - 14) + 'px';
+    buttonContainer.style.zIndex = '1001';
     buttonContainer.style.display = 'flex';
-    buttonContainer.style.gap = '5px';
+    buttonContainer.style.gap = '4px';
     buttonContainer.style.opacity = '0';
     buttonContainer.style.transition = 'opacity 0.2s ease';
+    buttonContainer.style.pointerEvents = 'auto';
     
     // Add hover listeners - simplified approach
     item.addEventListener('mouseenter', () => {
@@ -343,8 +345,18 @@ function addButtonsToTrialList() {
       buttonContainer.style.opacity = '0';
     });
     
-    // Append to trial item
-    item.appendChild(buttonContainer);
+    // Append to body instead of trial item to avoid layout interference
+    document.body.appendChild(buttonContainer);
+    
+    // Update position on scroll
+    const updatePosition = () => {
+      const newRect = item.getBoundingClientRect();
+      buttonContainer.style.top = (newRect.top + newRect.height / 2 - 14) + 'px';
+    };
+    
+    // Store reference for cleanup
+    item._buttonContainer = buttonContainer;
+    item._updatePosition = updatePosition;
     
     processedTrials.add(trialKey);
   });
@@ -357,40 +369,61 @@ function addFloatingActionButton() {
   // Remove existing floating buttons first
   removeFloatingActionButtons();
   
-  // Look for trial detail header - simplified detection
+  // Look for trial detail header with more specific detection
   const trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+)\s+\(trial_id=(\d+)\)/);
   
-  if (!trialHeaderMatch) return;
+  if (!trialHeaderMatch) {
+    console.log('No trial header found for floating buttons');
+    return;
+  }
   
-  // Also check if we can find typical trial detail elements
+  // Check if we're actually on a trial detail page (not just trial list)
   const hasNoteSection = document.body.textContent.includes('Note');
   const hasValueSection = document.body.textContent.includes('Value');
   const hasParameterSection = document.body.textContent.includes('Parameter');
+  const hasStartedAt = document.body.textContent.includes('Started At');
   
-  // If we have trial header and typical detail sections, show floating buttons
-  if (hasNoteSection || hasValueSection || hasParameterSection) {
-    const trialNumber = trialHeaderMatch[1];
-    const trialId = trialHeaderMatch[2];
-    
-    // Create floating action container
-    const floatingContainer = document.createElement('div');
-    floatingContainer.className = 'optuna-floating-actions';
-    
-    // Add prune button
-    const pruneBtn = createActionButton('prune', trialNumber, trialId);
-    pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
-    pruneBtn.classList.add('floating');
-    
-    // Add fail button
-    const failBtn = createActionButton('fail', trialNumber, trialId);
-    failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
-    failBtn.classList.add('floating');
-    
-    floatingContainer.appendChild(pruneBtn);
-    floatingContainer.appendChild(failBtn);
-    
-    document.body.appendChild(floatingContainer);
+  // More stringent check for trial detail page
+  const isTrialDetailPage = (hasNoteSection && hasValueSection) || 
+                           (hasParameterSection && hasStartedAt) ||
+                           document.querySelector('textarea, [contenteditable="true"]'); // Note editing area
+  
+  if (!isTrialDetailPage) {
+    console.log('Not on trial detail page, skipping floating buttons');
+    return;
   }
+  
+  const trialNumber = trialHeaderMatch[1];
+  const trialId = trialHeaderMatch[2];
+  
+  console.log(`Adding floating buttons for trial ${trialNumber} (ID: ${trialId})`);
+  
+  // Create floating action container with stable positioning
+  const floatingContainer = document.createElement('div');
+  floatingContainer.className = 'optuna-floating-actions';
+  floatingContainer.style.position = 'fixed';
+  floatingContainer.style.bottom = '30px';
+  floatingContainer.style.right = '30px';
+  floatingContainer.style.display = 'flex';
+  floatingContainer.style.flexDirection = 'column';
+  floatingContainer.style.gap = '10px';
+  floatingContainer.style.zIndex = '10000';
+  
+  // Add prune button
+  const pruneBtn = createActionButton('prune', trialNumber, trialId);
+  pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
+  pruneBtn.classList.add('floating');
+  
+  // Add fail button  
+  const failBtn = createActionButton('fail', trialNumber, trialId);
+  failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
+  failBtn.classList.add('floating');
+  
+  floatingContainer.appendChild(pruneBtn);
+  floatingContainer.appendChild(failBtn);
+  
+  document.body.appendChild(floatingContainer);
+  console.log('Floating buttons added successfully');
 }
 
 /**
