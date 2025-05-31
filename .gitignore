@@ -12,3 +12,4 @@ SSH_TUNNEL*
 CLAUDE.md
 **/.docs/**/*
 .docs/*
+dist/*
