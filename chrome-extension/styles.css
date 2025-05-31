@@ -161,12 +161,20 @@
   background-color: #228be6;
 }
 
-/* Ensure buttons don't interfere with trial selection */
-[class*="MuiListItem"]:hover .optuna-quick-actions-container {
-  opacity: 1;
+/* Fix spacing issues */
+li:has(.optuna-quick-actions-container),
+div:has(.optuna-quick-actions-container),
+[class*="MuiListItem"]:has(.optuna-quick-actions-container) {
+  /* Prevent our containers from adding spacing */
+  box-sizing: border-box !important;
 }
 
-/* No additional layout interference rules needed with new approach */
+/* Ensure containers don't add height or affect layout */
+.optuna-quick-actions-container {
+  height: 0 !important;
+  overflow: visible !important;
+  position: absolute !important;
+}
 
 /* Animation for spinner */
 @keyframes optuna-spin {

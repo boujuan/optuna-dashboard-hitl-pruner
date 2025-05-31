@@ -308,17 +308,19 @@ function addButtonsToTrialList() {
     buttonContainer.appendChild(createActionButton('prune', trialNumber, studyId));
     buttonContainer.appendChild(createActionButton('fail', trialNumber, studyId));
     
-    // Position container absolutely within the trial item
-    item.style.position = 'relative';
-    buttonContainer.style.position = 'absolute';
-    buttonContainer.style.right = '10px';
-    buttonContainer.style.top = '50%';
-    buttonContainer.style.transform = 'translateY(-50%)';
-    buttonContainer.style.zIndex = '1000';
+    // Position container as overlay without affecting layout
+    const itemRect = item.getBoundingClientRect();
+    item.style.position = item.style.position || 'relative';
+    
+    buttonContainer.style.position = 'fixed'; // Use fixed instead of absolute
+    buttonContainer.style.right = '20px';
+    buttonContainer.style.top = (itemRect.top + itemRect.height / 2 - 14) + 'px';
+    buttonContainer.style.zIndex = '1001';
     buttonContainer.style.display = 'flex';
-    buttonContainer.style.gap = '5px';
+    buttonContainer.style.gap = '4px';
     buttonContainer.style.opacity = '0';
     buttonContainer.style.transition = 'opacity 0.2s ease';
+    buttonContainer.style.pointerEvents = 'auto';
     
     // Add hover listeners - simplified approach
     item.addEventListener('mouseenter', () => {
@@ -343,8 +345,18 @@ function addButtonsToTrialList() {
       buttonContainer.style.opacity = '0';
     });
     
-    // Append to trial item
-    item.appendChild(buttonContainer);
+    // Append to body instead of trial item to avoid layout interference
+    document.body.appendChild(buttonContainer);
+    
+    // Update position on scroll
+    const updatePosition = () => {
+      const newRect = item.getBoundingClientRect();
+      buttonContainer.style.top = (newRect.top + newRect.height / 2 - 14) + 'px';
+    };
+    
+    // Store reference for cleanup
+    item._buttonContainer = buttonContainer;
+    item._updatePosition = updatePosition;
     
     processedTrials.add(trialKey);
   });
@@ -428,6 +440,38 @@ function addFloatingActionButton() {
     floatingButtonsAdded = true;
     lastUrl = location.href;
   }
+  
+  const trialNumber = trialHeaderMatch[1];
+  const trialId = trialHeaderMatch[2];
+  
+  console.log(`Adding floating buttons for trial ${trialNumber} (ID: ${trialId})`);
+  
+  // Create floating action container with stable positioning
+  const floatingContainer = document.createElement('div');
+  floatingContainer.className = 'optuna-floating-actions';
+  floatingContainer.style.position = 'fixed';
+  floatingContainer.style.bottom = '30px';
+  floatingContainer.style.right = '30px';
+  floatingContainer.style.display = 'flex';
+  floatingContainer.style.flexDirection = 'column';
+  floatingContainer.style.gap = '10px';
+  floatingContainer.style.zIndex = '10000';
+  
+  // Add prune button
+  const pruneBtn = createActionButton('prune', trialNumber, trialId);
+  pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
+  pruneBtn.classList.add('floating');
+  
+  // Add fail button  
+  const failBtn = createActionButton('fail', trialNumber, trialId);
+  failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
+  failBtn.classList.add('floating');
+  
+  floatingContainer.appendChild(pruneBtn);
+  floatingContainer.appendChild(failBtn);
+  
+  document.body.appendChild(floatingContainer);
+  console.log('Floating buttons added successfully');
 }
 
 /**
