@@ -21,26 +21,34 @@ This Chrome extension adds quick action buttons to the Optuna Dashboard for easy
 
 ## Installation
 
-1. **Create Icons** (Required for Chrome Extension)
-   These are just the extension icons that appear in Chrome's extension list. Create simple PNG files:
-   ```bash
-   # Create placeholder icons (16x16, 48x48, 128x128 pixels)
-   # You can use any image editor or online icon generator
-   # Or create simple colored squares with the ✂️ emoji
-   ```
-   Or just create solid colored squares as placeholders - they only appear in the extension management page.
+### Option 1: Load Unpacked (Development)
 
-2. **Load the Extension in Chrome**
-   - Open Chrome and go to `chrome://extensions/`
+1. **Load the Extension in Chrome**
+   - Open Chrome/Thorium and go to `chrome://extensions/`
    - Enable "Developer mode" (toggle in top right)
    - Click "Load unpacked"
    - Select the `chrome-extension` folder
 
-3. **Configure Your Batch Script**
+2. **Configure Your Batch Script**
    Add the extension to your Thorium browser launch:
    ```batch
    start "" "C:\...\chrome_proxy.exe" --profile-directory=Default --load-extension="\\wsl$\Debian\home\boujuan\optuna-dashboard-hitl-pruner\chrome-extension" --app="http://localhost:8080"
    ```
+
+### Option 2: Pack Extension (Distribution)
+
+1. **Create a Packaged Extension**
+   - Go to `chrome://extensions/`
+   - Click "Pack extension"
+   - Select the `chrome-extension` folder as "Extension root directory"
+   - Chrome will create a `.crx` file and `.pem` private key
+
+2. **Install the Packaged Extension**
+   - Drag and drop the `.crx` file into Chrome
+   - Or use the generated extension ID with `--load-extension`
+
+3. **For WSL Users**
+   The extension folder is already complete with icons and ready to use directly.
 
 ## How It Works
 
