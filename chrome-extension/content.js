@@ -142,50 +142,76 @@ function showNotification(message, type = 'info') {
   }, 3000);
 }
 
+// Global button container
+let globalButtonContainer = null;
+let currentHoveredTrial = null;
+
 /**
- * Add buttons to trial list items
+ * Create the global button container
+ */
+function createGlobalButtonContainer() {
+  if (globalButtonContainer) return;
+  
+  globalButtonContainer = document.createElement('div');
+  globalButtonContainer.className = 'optuna-quick-actions-container';
+  globalButtonContainer.style.display = 'none';
+  document.body.appendChild(globalButtonContainer);
+}
+
+/**
+ * Position and show buttons near a trial
+ */
+function showButtonsForTrial(trialElement, trialNumber, trialId) {
+  if (!globalButtonContainer) return;
+  
+  // Clear existing buttons
+  globalButtonContainer.innerHTML = '';
+  
+  // Add new buttons
+  globalButtonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
+  globalButtonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
+  
+  // Position the container
+  const rect = trialElement.getBoundingClientRect();
+  globalButtonContainer.style.left = (rect.right - 70) + 'px'; // 70px from right edge
+  globalButtonContainer.style.top = (rect.top + rect.height / 2 - 12) + 'px'; // Centered vertically
+  globalButtonContainer.style.display = 'flex';
+}
+
+/**
+ * Hide the global button container
+ */
+function hideButtons() {
+  if (globalButtonContainer) {
+    globalButtonContainer.style.display = 'none';
+  }
+  currentHoveredTrial = null;
+}
+
+/**
+ * Add hover listeners to trial list items
  */
 function addButtonsToTrialList() {
-  // Multiple selectors to catch different possible structures
-  const selectors = [
-    // MUI ListItem containing trial text
-    '[class*="MuiListItem"] [class*="MuiListItemText"]:has-text("Trial")',
-    // Direct trial elements
-    '[class*="trial"i]',
-    // List items with Trial text
-    'li:has(> div:has-text("Trial"))',
-    'a:has(> div:has-text("Trial"))',
-    // Generic approach - any clickable element with Trial text
-    '[role="button"]:has-text("Trial"), [tabindex]:has-text("Trial")'
-  ];
+  // Find trial elements
+  const elements = document.querySelectorAll('*');
+  const trialItems = [];
   
-  // Try each selector
-  let trialItems = [];
-  for (const selector of selectors) {
-    try {
-      // Use a more compatible selector approach
-      const elements = document.querySelectorAll('*');
-      elements.forEach(el => {
-        const text = el.textContent || '';
-        if (text.includes('Trial') && text.match(/Trial\s+\d+/) && 
-            !text.includes('PRUNE') && !text.includes('FAIL') &&
-            (el.tagName === 'LI' || el.tagName === 'A' || el.tagName === 'DIV' || el.getAttribute('role') === 'button')) {
-          // Check if this element or its parent is a list item
-          const listItem = el.closest('li, [role="button"], a[href*="trials"]');
-          if (listItem && !trialItems.includes(listItem)) {
-            trialItems.push(listItem);
-          }
-        }
-      });
+  elements.forEach(el => {
+    const text = el.textContent || '';
+    if (text.match(/^Trial\s+\d+/) && 
+        !text.includes('PRUNE') && 
+        !text.includes('FAIL') &&
+        (el.tagName === 'LI' || el.tagName === 'A' || el.tagName === 'DIV' || el.getAttribute('role') === 'button')) {
       
-      if (trialItems.length > 0) break;
-    } catch (e) {
-      console.debug('Selector failed:', selector, e);
+      // Find the clickable parent (the actual trial list item)
+      const listItem = el.closest('li, [role="button"], a');
+      if (listItem && !trialItems.includes(listItem)) {
+        trialItems.push(listItem);
+      }
     }
-  }
+  });
   
   trialItems.forEach(item => {
-    // Extract trial number from the text content
     const trialText = item.textContent || '';
     const trialMatch = trialText.match(/Trial\s+(\d+)/);
     
@@ -197,35 +223,39 @@ function addButtonsToTrialList() {
     // Skip if already processed
     if (processedTrials.has(trialKey)) return;
     
-    // Skip if buttons already exist
-    if (item.querySelector('.optuna-quick-actions-container')) return;
-    
-    // The trial ID is typically the same as trial number in the API
     const trialId = trialNumber;
     
-    // Create button container
-    const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'optuna-quick-actions-container';
+    // Add hover listeners
+    item.addEventListener('mouseenter', () => {
+      currentHoveredTrial = trialNumber;
+      showButtonsForTrial(item, trialNumber, trialId);
+    });
     
-    // Add prune and fail buttons
-    buttonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
-    buttonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
-    
-    // Insert buttons into the trial item without affecting layout
-    const originalPosition = item.style.position;
-    if (!originalPosition || originalPosition === 'static') {
-      item.style.position = 'relative';
-    }
-    
-    // Ensure the item doesn't have extra padding/margin from our buttons
-    buttonContainer.style.position = 'absolute';
-    buttonContainer.style.margin = '0';
-    buttonContainer.style.padding = '0';
-    
-    item.appendChild(buttonContainer);
+    item.addEventListener('mouseleave', () => {
+      // Small delay to allow moving to buttons
+      setTimeout(() => {
+        if (currentHoveredTrial === trialNumber) {
+          hideButtons();
+        }
+      }, 100);
+    });
     
     processedTrials.add(trialKey);
   });
+  
+  // Create global container if it doesn't exist
+  createGlobalButtonContainer();
+  
+  // Add hover listeners to button container
+  if (globalButtonContainer) {
+    globalButtonContainer.addEventListener('mouseenter', () => {
+      // Keep buttons visible when hovering over them
+    });
+    
+    globalButtonContainer.addEventListener('mouseleave', () => {
+      hideButtons();
+    });
+  }
 }
 
 /**
@@ -235,37 +265,40 @@ function addFloatingActionButton() {
   // Remove existing floating buttons first
   removeFloatingActionButtons();
   
-  // Check if we're on a trial detail page with the specific pattern
+  // Look for trial detail header - simplified detection
   const trialHeaderMatch = document.body.textContent.match(/Trial\s+(\d+)\s+\(trial_id=(\d+)\)/);
   
-  // Also check URL pattern to ensure we're on the correct page
-  const isTrialDetailPage = window.location.pathname.includes('/trials/') && 
-                           !window.location.pathname.endsWith('/trials') &&
-                           trialHeaderMatch;
+  if (!trialHeaderMatch) return;
   
-  if (!isTrialDetailPage) return;
+  // Also check if we can find typical trial detail elements
+  const hasNoteSection = document.body.textContent.includes('Note');
+  const hasValueSection = document.body.textContent.includes('Value');
+  const hasParameterSection = document.body.textContent.includes('Parameter');
   
-  const trialNumber = trialHeaderMatch[1];
-  const trialId = trialHeaderMatch[2];
-  
-  // Create floating action container
-  const floatingContainer = document.createElement('div');
-  floatingContainer.className = 'optuna-floating-actions';
-  
-  // Add prune button
-  const pruneBtn = createActionButton('prune', trialNumber, trialId);
-  pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
-  pruneBtn.classList.add('floating');
-  
-  // Add fail button
-  const failBtn = createActionButton('fail', trialNumber, trialId);
-  failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
-  failBtn.classList.add('floating');
-  
-  floatingContainer.appendChild(pruneBtn);
-  floatingContainer.appendChild(failBtn);
-  
-  document.body.appendChild(floatingContainer);
+  // If we have trial header and typical detail sections, show floating buttons
+  if (hasNoteSection || hasValueSection || hasParameterSection) {
+    const trialNumber = trialHeaderMatch[1];
+    const trialId = trialHeaderMatch[2];
+    
+    // Create floating action container
+    const floatingContainer = document.createElement('div');
+    floatingContainer.className = 'optuna-floating-actions';
+    
+    // Add prune button
+    const pruneBtn = createActionButton('prune', trialNumber, trialId);
+    pruneBtn.innerHTML = `${CONFIG.buttonStyles.prune.icon} Prune`;
+    pruneBtn.classList.add('floating');
+    
+    // Add fail button
+    const failBtn = createActionButton('fail', trialNumber, trialId);
+    failBtn.innerHTML = `${CONFIG.buttonStyles.fail.icon} Fail`;
+    failBtn.classList.add('floating');
+    
+    floatingContainer.appendChild(pruneBtn);
+    floatingContainer.appendChild(failBtn);
+    
+    document.body.appendChild(floatingContainer);
+  }
 }
 
 /**
@@ -323,6 +356,8 @@ new MutationObserver(() => {
   if (url !== lastUrl) {
     lastUrl = url;
     processedTrials.clear(); // Clear processed trials on navigation
+    hideButtons(); // Hide any visible hover buttons
+    removeFloatingActionButtons(); // Remove floating buttons
     setTimeout(() => {
       addButtonsToTrialList();
       addFloatingActionButton();

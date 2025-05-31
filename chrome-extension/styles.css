@@ -4,32 +4,21 @@
 
 /* Quick action buttons in trial list */
 .optuna-quick-actions-container {
-  position: absolute !important;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  gap: 5px;
-  z-index: 10;
-  pointer-events: none; /* Don't interfere with list item clicks */
-  margin: 0 !important;
-  padding: 0 !important;
-  /* Ensure this doesn't affect the parent's layout */
-  width: auto;
-  height: auto;
+  position: fixed !important;
+  display: none; /* Hidden by default */
+  gap: 3px;
+  z-index: 1000;
+  pointer-events: none;
+  margin: 0;
+  padding: 0;
 }
 
 .optuna-quick-actions-container .optuna-quick-action {
-  pointer-events: auto; /* But buttons themselves are clickable */
-}
-
-/* Ensure trial list items maintain their original spacing */
-[class*="MuiListItem"]:has(.optuna-quick-actions-container),
-li:has(.optuna-quick-actions-container),
-div:has(.optuna-quick-actions-container) {
-  /* Don't let our buttons affect the list item spacing */
-  margin: inherit !important;
-  padding: inherit !important;
+  pointer-events: auto;
+  font-size: 12px;
+  padding: 3px 6px;
+  min-width: 24px;
+  height: 24px;
 }
 
 .optuna-quick-action {
@@ -175,16 +164,7 @@ div:has(.optuna-quick-actions-container) {
   opacity: 1;
 }
 
-/* Initially hide buttons until hover */
-.optuna-quick-actions-container {
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-
-[class*="MuiListItem"]:hover .optuna-quick-actions-container,
-.optuna-quick-actions-container:hover {
-  opacity: 1;
-}
+/* No additional layout interference rules needed with new approach */
 
 /* Animation for spinner */
 @keyframes optuna-spin {
