@@ -29,8 +29,8 @@
   border-radius: 4px;
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  opacity: 0.8;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  opacity: 0.9;
   min-width: 32px;
   height: 32px;
   display: flex;
@@ -41,12 +41,12 @@
 
 .optuna-quick-action:hover {
   opacity: 1;
-  transform: scale(1.05);
-  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.15);
 }
 
 .optuna-quick-action:active {
-  transform: scale(0.95);
+  transform: scale(0.98);
+  transition: transform 0.1s ease;
 }
 
 .optuna-quick-action:disabled {
@@ -122,11 +122,11 @@
   min-width: auto;
   height: auto;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .optuna-quick-action.floating:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.2);
 }
 
 /* Notifications */

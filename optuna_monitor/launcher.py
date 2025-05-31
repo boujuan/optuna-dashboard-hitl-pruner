@@ -89,64 +89,152 @@ def is_port_in_use(port):
 
 def wait_for_port_available(port, timeout=30):
     """Wait for a port to become available."""
+    print(f"Waiting up to {timeout} seconds for port {port} to become available...")
     start_time = time.time()
+    last_check_time = 0
+    
     while time.time() - start_time < timeout:
+        current_time = time.time() - start_time
         if not is_port_in_use(port):
+            print(f"Port {port} is now available after {current_time:.1f} seconds")
             return True
-        time.sleep(0.5)
+        
+        # Show progress every 5 seconds
+        if current_time - last_check_time >= 5:
+            print(f"Still waiting for port {port}... ({current_time:.0f}s elapsed)")
+            last_check_time = current_time
+            
+            # Try to find what's still using the port
+            try:
+                result = subprocess.run(['lsof', '-ti', f':{port}'], capture_output=True, text=True)
+                if result.stdout.strip():
+                    remaining_pids = result.stdout.strip().split('\n')
+                    print(f"Processes still using port {port}: {', '.join(remaining_pids)}")
+            except:
+                pass
+        
+        time.sleep(1)
+    
+    print(f"Timeout waiting for port {port} to become available")
     return False
 
+
 def kill_process_on_port(port):
-    """Try to kill process using the specified port."""
+    """Try to kill ALL processes using the specified port."""
+    killed_any = False
+    pids_to_kill = set()
+    
+    # Step 1: Collect ALL PIDs using the port
     try:
-        # Try lsof first (Linux/Mac)
+        # Try lsof first - it can return multiple PIDs
         result = subprocess.run(['lsof', '-ti', f':{port}'], capture_output=True, text=True)
         if result.returncode == 0 and result.stdout.strip():
-            pid = result.stdout.strip()
-            print(f"Found process {pid} using port {port}, attempting to kill...")
-            subprocess.run(['kill', '-9', pid])
-            time.sleep(1)
-            return True
+            # lsof returns one PID per line
+            for line in result.stdout.strip().split('\n'):
+                if line.strip().isdigit():
+                    pids_to_kill.add(line.strip())
     except FileNotFoundError:
-        # lsof not available, try netstat
         pass
     
+    # Also try fuser which is good at finding all processes
     try:
-        # Alternative: use netstat (more universal)
-        result = subprocess.run(['netstat', '-tlnp'], capture_output=True, text=True)
-        for line in result.stdout.split('\n'):
-            if f':{port}' in line and 'LISTEN' in line:
-                # Extract PID from the line
-                parts = line.split()
-                if len(parts) >= 7:
-                    pid_prog = parts[6]
-                    if '/' in pid_prog:
-                        pid = pid_prog.split('/')[0]
-                        print(f"Found process {pid} using port {port}, attempting to kill...")
-                        subprocess.run(['kill', '-9', pid])
-                        time.sleep(1)
-                        return True
-    except Exception:
+        result = subprocess.run(['fuser', f'{port}/tcp'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if result.stdout:
+            # fuser output format: "8080/tcp:   12345 12346 12347"
+            parts = result.stdout.split()
+            for part in parts:
+                if part.isdigit():
+                    pids_to_kill.add(part)
+    except FileNotFoundError:
         pass
     
-    try:
-        # Last resort: use ss command
-        result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], capture_output=True, text=True)
-        if 'pid=' in result.stdout:
-            # Extract PID
+    # Try netstat as backup
+    if not pids_to_kill:
+        try:
+            result = subprocess.run(['netstat', '-tlnp'], capture_output=True, text=True)
+            for line in result.stdout.split('\n'):
+                if f':{port}' in line and 'LISTEN' in line:
+                    parts = line.split()
+                    if len(parts) >= 7:
+                        pid_prog = parts[6]
+                        if '/' in pid_prog:
+                            pid = pid_prog.split('/')[0]
+                            if pid.isdigit():
+                                pids_to_kill.add(pid)
+        except Exception:
+            pass
+    
+    # Try ss as last resort
+    if not pids_to_kill:
+        try:
+            result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], capture_output=True, text=True)
             import re
-            match = re.search(r'pid=(\d+)', result.stdout)
-            if match:
-                pid = match.group(1)
-                print(f"Found process {pid} using port {port}, attempting to kill...")
-                subprocess.run(['kill', '-9', pid])
-                time.sleep(1)
-                return True
-    except Exception:
+            for match in re.finditer(r'pid=(\d+)', result.stdout):
+                pids_to_kill.add(match.group(1))
+        except Exception:
+            pass
+    
+    if not pids_to_kill:
+        print(f"Could not find any process using port {port}")
+        return False
+    
+    print(f"Found {len(pids_to_kill)} process(es) using port {port}: {', '.join(pids_to_kill)}")
+    
+    # Step 2: Kill all processes and their children
+    for pid in pids_to_kill:
+        try:
+            # First try to kill the entire process group
+            print(f"Killing process {pid} and its children...")
+            
+            # Try pkill to kill process tree
+            subprocess.run(['pkill', '-TERM', '-P', pid], capture_output=True)
+            time.sleep(0.5)
+            
+            # Then kill the main process
+            subprocess.run(['kill', '-TERM', pid], capture_output=True)
+            time.sleep(0.5)
+            
+            # Force kill if still alive
+            subprocess.run(['kill', '-9', pid], capture_output=True)
+            killed_any = True
+            
+        except Exception as e:
+            print(f"Error killing process {pid}: {e}")
+    
+    # Step 3: Extra cleanup - kill any remaining processes by name
+    try:
+        # Common process names that might hold the port
+        for proc_name in ['node', 'python', 'gunicorn', 'optuna-dashboard']:
+            result = subprocess.run(['pgrep', '-f', proc_name], capture_output=True, text=True)
+            if result.returncode == 0:
+                for pid in result.stdout.strip().split('\n'):
+                    if pid.strip().isdigit():
+                        # Check if this process is actually using our port
+                        check = subprocess.run(['lsof', '-p', pid, '-i', f':{port}'], 
+                                             capture_output=True, text=True)
+                        if check.returncode == 0 and check.stdout:
+                            print(f"Found {proc_name} process {pid} still using port, killing...")
+                            subprocess.run(['kill', '-9', pid], capture_output=True)
+                            killed_any = True
+    except:
         pass
     
-    print(f"Could not find/kill process on port {port} (tried lsof, netstat, ss)")
-    return False
+    # Wait a bit longer for ports to be released
+    if killed_any:
+        print("Waiting for port to be released...")
+        time.sleep(3)
+        
+        # WSL-specific: Sometimes we need to wait longer for port release
+        if os.path.exists('/proc/version'):
+            try:
+                with open('/proc/version', 'r') as f:
+                    if 'microsoft' in f.read().lower():
+                        print("WSL detected - waiting additional time for port release...")
+                        time.sleep(2)
+            except:
+                pass
+    
+    return killed_any
 
 def create_ssh_tunnel(ssh_host, ssh_user, ssh_port, db_host, db_port, ssh_key_path=None, ssh_password=None):
     """Create an SSH tunnel and return the local port."""
@@ -183,7 +271,7 @@ def create_ssh_tunnel(ssh_host, ssh_user, ssh_port, db_host, db_port, ssh_key_pa
         
         # Check if the process is still running
         if SSH_TUNNEL_PROCESS.poll() is not None:
-            stdout, stderr = SSH_TUNNEL_PROCESS.communicate()
+            _, stderr = SSH_TUNNEL_PROCESS.communicate()
             print(f"SSH tunnel failed to start. Error: {stderr.decode()}", file=sys.stderr)
             sys.exit(1)
         
@@ -222,6 +310,7 @@ def main():
     monitor_group = parser.add_argument_group('Monitor configuration')
     monitor_group.add_argument("--port", type=int, default=8080, help="Specify port for optuna-dashboard (default: 8080)")
     monitor_group.add_argument("--force-port", action="store_true", help="Force use of specified port by killing existing process if needed")
+    monitor_group.add_argument("--cleanup-port", action="store_true", help="Only cleanup processes on the specified port and exit (useful for stuck ports)")
     monitor_group.add_argument("--study", nargs='*', help="Specify one or more study names to monitor (default: monitor all studies if none specified)")
     monitor_group.add_argument("--interval", type=int, default=10, help="Monitor check interval in seconds (default: 10)")
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
@@ -358,19 +447,60 @@ def main():
         if not package_installed(pkg):
             install_package(pkg)
 
+    # Handle cleanup-only mode
+    if args.cleanup_port:
+        print(f"Cleanup-only mode: Cleaning up processes on port {args.port}")
+        if is_port_in_use(args.port):
+            print(f"Port {args.port} is in use. Attempting to clean up...")
+            if kill_process_on_port(args.port):
+                if wait_for_port_available(args.port, timeout=15):
+                    print(f"✅ Successfully cleaned up port {args.port}")
+                    sys.exit(0)
+                else:
+                    print(f"❌ Port {args.port} is still in use after cleanup")
+                    sys.exit(1)
+            else:
+                print(f"❌ Could not clean up port {args.port}")
+                sys.exit(1)
+        else:
+            print(f"✅ Port {args.port} is already free")
+            sys.exit(0)
+
     # Check port availability and handle conflicts
     if is_port_in_use(args.port):
         print(f"Port {args.port} is already in use.")
         if args.force_port:
             print(f"Force mode enabled. Attempting to kill process on port {args.port}...")
+            
+            # Show what's using the port before killing
+            try:
+                result = subprocess.run(['lsof', '-ti', f':{args.port}'], capture_output=True, text=True)
+                if result.stdout.strip():
+                    pids = result.stdout.strip().split('\n')
+                    print(f"Processes using port {args.port}: {', '.join(pids)}")
+            except:
+                pass
+            
             if kill_process_on_port(args.port):
-                print(f"Successfully killed process on port {args.port}")
-                # Wait a bit for port to be released
-                if not wait_for_port_available(args.port, timeout=5):
+                print(f"Process cleanup completed for port {args.port}")
+                # Wait longer for port to be released (increased timeout)
+                if not wait_for_port_available(args.port, timeout=15):
                     print(f"Error: Port {args.port} still in use after killing process", file=sys.stderr)
+                    
+                    # Final diagnostic - show what's still using the port
+                    try:
+                        result = subprocess.run(['lsof', '-i', f':{args.port}'], capture_output=True, text=True)
+                        if result.stdout:
+                            print("Processes still using the port:", file=sys.stderr)
+                            print(result.stdout, file=sys.stderr)
+                    except:
+                        pass
+                    
+                    print("Consider using a different port with --port or manually stopping the conflicting process", file=sys.stderr)
                     sys.exit(1)
             else:
                 print(f"Error: Could not kill process on port {args.port}", file=sys.stderr)
+                print("Consider using a different port with --port or manually stopping the conflicting process", file=sys.stderr)
                 sys.exit(1)
         else:
             print(f"Use --force-port to kill the existing process, or choose a different port with --port", file=sys.stderr)
@@ -378,23 +508,18 @@ def main():
 
     # Launch Optuna Dashboard
     print(f"Starting optuna-dashboard on port {args.port}...")
-    # Call optuna-dashboard directly as a command
-    dashboard_cmd = ["optuna-dashboard", db_url, "--port", str(args.port)]
-    dashboard_process = subprocess.Popen(dashboard_cmd, preexec_fn=os.setsid) # Use os.setsid to create a new process group
+    dashboard_cmd = ["optuna-dashboard", db_url, "--port", str(args.port), "--host", "0.0.0.0"]
+    dashboard_process = subprocess.Popen(dashboard_cmd, preexec_fn=os.setsid)
     CHILD_PROCESSES.append(dashboard_process)
     print("Loading all studies from the database")
 
     # Wait for dashboard to initialize with retries
     print("Waiting for dashboard to initialize...")
     max_retries = 10
-    for i in range(max_retries):
+    for _ in range(max_retries):
         time.sleep(1)
         if dashboard_process.poll() is not None:
-            # Process died
-            stdout, stderr = dashboard_process.communicate()
             print(f"Error: Optuna dashboard failed to start", file=sys.stderr)
-            if stderr:
-                print(f"Error details: {stderr.decode()}", file=sys.stderr)
             sys.exit(1)
         
         # Check if port is now in use (dashboard started successfully)
