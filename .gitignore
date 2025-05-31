@@ -13,3 +13,5 @@ CLAUDE.md
 **/.docs/**/*
 .docs/*
 dist/*
+*.zip
+*.crx
