@@ -4,21 +4,23 @@
 
 /* Quick action buttons in trial list */
 .optuna-quick-actions-container {
-  position: fixed !important;
-  display: none; /* Hidden by default */
-  gap: 3px;
+  position: absolute !important;
+  display: flex !important;
+  gap: 4px;
   z-index: 1000;
-  pointer-events: none;
-  margin: 0;
-  padding: 0;
+  pointer-events: auto;
+  margin: 0 !important;
+  padding: 0 !important;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
 .optuna-quick-actions-container .optuna-quick-action {
   pointer-events: auto;
   font-size: 12px;
-  padding: 3px 6px;
-  min-width: 24px;
-  height: 24px;
+  padding: 4px 8px;
+  min-width: 28px;
+  height: 28px;
 }
 
 .optuna-quick-action {

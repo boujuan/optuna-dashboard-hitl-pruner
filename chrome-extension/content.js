@@ -28,8 +28,37 @@ const processedTrials = new Set();
  * Extract study ID from the current URL
  */
 function getStudyIdFromUrl() {
-  const match = window.location.pathname.match(/studies\/(\d+)/);
-  return match ? match[1] : null;
+  // Try different URL patterns
+  const patterns = [
+    /studies\/(\d+)/,           // /studies/123
+    /\/dashboard\/studies\/(\d+)/, // /dashboard/studies/123
+    /study[_-]?id[=:](\d+)/i,   // study_id=123 or study-id:123
+    /id[=:](\d+)/               // id=123
+  ];
+  
+  for (const pattern of patterns) {
+    const match = window.location.pathname.match(pattern) || 
+                  window.location.search.match(pattern) ||
+                  window.location.href.match(pattern);
+    if (match) {
+      console.log(`Found study ID ${match[1]} using pattern ${pattern}`);
+      return match[1];
+    }
+  }
+  
+  // Try to extract from page content as fallback
+  const pageText = document.body.textContent;
+  const contentMatch = pageText.match(/Study\s+ID[:\s]+(\d+)/i) ||
+                      pageText.match(/study[_-]?id[:\s]+(\d+)/i);
+  
+  if (contentMatch) {
+    console.log(`Found study ID ${contentMatch[1]} from page content`);
+    return contentMatch[1];
+  }
+  
+  console.log('Could not determine study ID from URL or content');
+  console.log('Current URL:', window.location.href);
+  return null;
 }
 
 /**
@@ -37,42 +66,116 @@ function getStudyIdFromUrl() {
  */
 async function updateTrialNote(studyId, trialId, action) {
   try {
-    // First, get the current note
-    const noteResponse = await fetch(`/api/studies/${studyId}/trials/${trialId}/note`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
+    console.log(`Attempting to update trial ${trialId} with action: ${action}`);
+    console.log(`Study ID: ${studyId}, Current URL: ${window.location.href}`);
+    
+    // Try different API endpoint patterns that Optuna Dashboard might use
+    const possibleEndpoints = [
+      `/api/studies/${studyId}/trials/${trialId}/note`,
+      `/api/studies/${studyId}/trials/${trialId}/user_attrs/note`,
+      `/studies/${studyId}/trials/${trialId}/note`,
+      `/api/trials/${trialId}/note`,
+    ];
 
+    // First, try to get the current note
     let currentNote = '';
-    if (noteResponse.ok) {
-      const noteData = await noteResponse.json();
-      currentNote = noteData.body || '';
+    let noteVersion = 0;
+    let workingGetEndpoint = null;
+    
+    for (const endpoint of possibleEndpoints) {
+      try {
+        console.log(`Trying GET ${endpoint}`);
+        const noteResponse = await fetch(endpoint, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+
+        console.log(`GET ${endpoint} response: ${noteResponse.status}`);
+        if (noteResponse.ok) {
+          const noteData = await noteResponse.json();
+          console.log(`Note data from ${endpoint}:`, noteData);
+          currentNote = noteData.body || noteData.note || noteData.value || '';
+          noteVersion = noteData.version || 0;
+          workingGetEndpoint = endpoint;
+          console.log(`Successfully got note from ${endpoint}: "${currentNote}"`);
+          break;
+        }
+      } catch (e) {
+        console.log(`Failed to get note from ${endpoint}:`, e);
+      }
     }
 
     // Append the action to the note
     const newNote = currentNote + (currentNote ? '\n\n' : '') + action.toUpperCase();
+    console.log(`New note content: "${newNote}"`);
 
-    // Update the note
-    const updateResponse = await fetch(`/api/studies/${studyId}/trials/${trialId}/note`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        version: 0, // This may need to be adjusted based on the actual API
-        body: newNote
-      })
-    });
+    // Try to update the note using the working endpoint first, then others
+    const endpointsToTry = workingGetEndpoint ? 
+      [workingGetEndpoint, ...possibleEndpoints.filter(e => e !== workingGetEndpoint)] : 
+      possibleEndpoints;
 
-    if (!updateResponse.ok) {
-      throw new Error(`Failed to update note: ${updateResponse.status}`);
+    for (const endpoint of endpointsToTry) {
+      try {
+        console.log(`Trying PUT ${endpoint}`);
+        const updateResponse = await fetch(endpoint, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            version: noteVersion,
+            body: newNote,
+            note: newNote,
+            value: newNote,
+          })
+        });
+
+        console.log(`PUT ${endpoint} response: ${updateResponse.status}`);
+        if (updateResponse.ok) {
+          console.log(`Successfully updated note via ${endpoint}`);
+          return true;
+        } else {
+          const errorText = await updateResponse.text();
+          console.log(`PUT ${endpoint} failed: ${updateResponse.status} - ${errorText}`);
+        }
+      } catch (e) {
+        console.log(`Error with PUT ${endpoint}:`, e);
+      }
     }
 
-    return true;
+    // If PUT fails, try POST
+    for (const endpoint of endpointsToTry) {
+      try {
+        console.log(`Trying POST ${endpoint}`);
+        const postResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            body: newNote,
+            note: newNote,
+            value: newNote,
+          })
+        });
+
+        console.log(`POST ${endpoint} response: ${postResponse.status}`);
+        if (postResponse.ok) {
+          console.log('Successfully updated note via POST');
+          return true;
+        }
+      } catch (e) {
+        console.log(`POST ${endpoint} failed:`, e);
+      }
+    }
+
+    throw new Error('All API endpoint attempts failed');
+
   } catch (error) {
     console.error(`Error updating trial note:`, error);
+    showNotification(`Failed to update trial: ${error.message}`, 'error');
     return false;
   }
 }
@@ -87,27 +190,34 @@ function createActionButton(action, trialNumber, trialId) {
   button.title = `${action.charAt(0).toUpperCase() + action.slice(1)} Trial ${trialNumber}`;
   
   button.addEventListener('click', async (e) => {
+    console.log(`Button clicked: ${action} for trial ${trialNumber}`);
     e.stopPropagation();
     e.preventDefault();
     
     const studyId = getStudyIdFromUrl();
+    console.log(`Study ID: ${studyId}`);
+    
     if (!studyId) {
+      console.error('Could not determine study ID');
       showNotification('Error: Could not determine study ID', 'error');
       return;
     }
 
+    console.log(`Disabling button and starting ${action} for trial ${trialNumber}`);
     button.disabled = true;
     button.classList.add('loading');
     
     const success = await updateTrialNote(studyId, trialId, action);
+    console.log(`Update result: ${success}`);
     
     if (success) {
       showNotification(`Trial ${trialNumber} marked for ${action}`, 'success');
       button.classList.add('success');
+      console.log('Reloading page in 2 seconds...');
       // Refresh the page after a short delay to show updated state
       setTimeout(() => {
         window.location.reload();
-      }, 1000);
+      }, 2000);
     } else {
       showNotification(`Failed to ${action} trial ${trialNumber}`, 'error');
       button.disabled = false;
@@ -142,74 +252,33 @@ function showNotification(message, type = 'info') {
   }, 3000);
 }
 
-// Global button container
-let globalButtonContainer = null;
-let currentHoveredTrial = null;
-
-/**
- * Create the global button container
- */
-function createGlobalButtonContainer() {
-  if (globalButtonContainer) return;
-  
-  globalButtonContainer = document.createElement('div');
-  globalButtonContainer.className = 'optuna-quick-actions-container';
-  globalButtonContainer.style.display = 'none';
-  document.body.appendChild(globalButtonContainer);
-}
-
-/**
- * Position and show buttons near a trial
- */
-function showButtonsForTrial(trialElement, trialNumber, trialId) {
-  if (!globalButtonContainer) return;
-  
-  // Clear existing buttons
-  globalButtonContainer.innerHTML = '';
-  
-  // Add new buttons
-  globalButtonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
-  globalButtonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
-  
-  // Position the container
-  const rect = trialElement.getBoundingClientRect();
-  globalButtonContainer.style.left = (rect.right - 70) + 'px'; // 70px from right edge
-  globalButtonContainer.style.top = (rect.top + rect.height / 2 - 12) + 'px'; // Centered vertically
-  globalButtonContainer.style.display = 'flex';
-}
-
-/**
- * Hide the global button container
- */
-function hideButtons() {
-  if (globalButtonContainer) {
-    globalButtonContainer.style.display = 'none';
-  }
-  currentHoveredTrial = null;
-}
-
 /**
  * Add hover listeners to trial list items
  */
 function addButtonsToTrialList() {
-  // Find trial elements
+  // Find trial elements more specifically
   const elements = document.querySelectorAll('*');
   const trialItems = [];
   
   elements.forEach(el => {
     const text = el.textContent || '';
-    if (text.match(/^Trial\s+\d+/) && 
+    // Look for elements that start with "Trial X" where X is a number
+    if (text.match(/^\s*Trial\s+\d+/) && 
         !text.includes('PRUNE') && 
         !text.includes('FAIL') &&
-        (el.tagName === 'LI' || el.tagName === 'A' || el.tagName === 'DIV' || el.getAttribute('role') === 'button')) {
+        // Should be a clickable element
+        (el.tagName === 'LI' || el.tagName === 'A' || el.tagName === 'DIV' || 
+         el.getAttribute('role') === 'button' || el.style.cursor === 'pointer')) {
       
       // Find the clickable parent (the actual trial list item)
-      const listItem = el.closest('li, [role="button"], a');
+      const listItem = el.closest('li, [role="button"], a, div[style*="cursor"]');
       if (listItem && !trialItems.includes(listItem)) {
         trialItems.push(listItem);
       }
     }
   });
+  
+  console.log(`Found ${trialItems.length} trial items`);
   
   trialItems.forEach(item => {
     const trialText = item.textContent || '';
@@ -223,39 +292,62 @@ function addButtonsToTrialList() {
     // Skip if already processed
     if (processedTrials.has(trialKey)) return;
     
+    // Skip if buttons already exist
+    if (item.querySelector('.optuna-quick-actions-container')) return;
+    
     const trialId = trialNumber;
     
-    // Add hover listeners
+    console.log(`Adding buttons to trial ${trialNumber}`);
+    
+    // Create button container for this specific trial
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'optuna-quick-actions-container';
+    buttonContainer.style.display = 'none'; // Hidden by default
+    
+    // Add buttons
+    buttonContainer.appendChild(createActionButton('prune', trialNumber, trialId));
+    buttonContainer.appendChild(createActionButton('fail', trialNumber, trialId));
+    
+    // Position container absolutely within the trial item
+    item.style.position = 'relative';
+    buttonContainer.style.position = 'absolute';
+    buttonContainer.style.right = '10px';
+    buttonContainer.style.top = '50%';
+    buttonContainer.style.transform = 'translateY(-50%)';
+    buttonContainer.style.zIndex = '1000';
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.gap = '5px';
+    buttonContainer.style.opacity = '0';
+    buttonContainer.style.transition = 'opacity 0.2s ease';
+    
+    // Add hover listeners - simplified approach
     item.addEventListener('mouseenter', () => {
-      currentHoveredTrial = trialNumber;
-      showButtonsForTrial(item, trialNumber, trialId);
+      buttonContainer.style.opacity = '1';
     });
     
     item.addEventListener('mouseleave', () => {
-      // Small delay to allow moving to buttons
+      // Small delay to allow clicking buttons
       setTimeout(() => {
-        if (currentHoveredTrial === trialNumber) {
-          hideButtons();
+        if (!buttonContainer.matches(':hover')) {
+          buttonContainer.style.opacity = '0';
         }
-      }, 100);
+      }, 150);
     });
+    
+    // Keep buttons visible when hovering over them
+    buttonContainer.addEventListener('mouseenter', () => {
+      buttonContainer.style.opacity = '1';
+    });
+    
+    buttonContainer.addEventListener('mouseleave', () => {
+      buttonContainer.style.opacity = '0';
+    });
+    
+    // Append to trial item
+    item.appendChild(buttonContainer);
     
     processedTrials.add(trialKey);
   });
-  
-  // Create global container if it doesn't exist
-  createGlobalButtonContainer();
-  
-  // Add hover listeners to button container
-  if (globalButtonContainer) {
-    globalButtonContainer.addEventListener('mouseenter', () => {
-      // Keep buttons visible when hovering over them
-    });
-    
-    globalButtonContainer.addEventListener('mouseleave', () => {
-      hideButtons();
-    });
-  }
 }
 
 /**
@@ -320,7 +412,7 @@ function initialize() {
   addFloatingActionButton();
   
   // Set up mutation observer to handle dynamic content
-  const observer = new MutationObserver((mutations) => {
+  const observer = new MutationObserver(() => {
     // Debounce to avoid too many calls
     clearTimeout(observer.timeout);
     observer.timeout = setTimeout(() => {
@@ -356,7 +448,6 @@ new MutationObserver(() => {
   if (url !== lastUrl) {
     lastUrl = url;
     processedTrials.clear(); // Clear processed trials on navigation
-    hideButtons(); // Hide any visible hover buttons
     removeFloatingActionButtons(); // Remove floating buttons
     setTimeout(() => {
       addButtonsToTrialList();
