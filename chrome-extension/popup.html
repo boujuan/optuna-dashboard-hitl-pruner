@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 300px;
+      padding: 15px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+    }
+    
+    h1 {
+      font-size: 18px;
+      margin: 0 0 15px 0;
+      color: #333;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .status {
+      padding: 10px;
+      background-color: #f0f0f0;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    
+    .status.active {
+      background-color: #e7f5ff;
+      color: #1971c2;
+    }
+    
+    .instructions {
+      font-size: 13px;
+      color: #666;
+      line-height: 1.5;
+    }
+    
+    .instructions h3 {
+      font-size: 14px;
+      margin: 10px 0 5px 0;
+      color: #333;
+    }
+    
+    .instructions ul {
+      margin: 5px 0;
+      padding-left: 20px;
+    }
+    
+    .instructions li {
+      margin: 3px 0;
+    }
+    
+    .buttons-info {
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    
+    .button-example {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    
+    .prune {
+      background-color: #ff6b6b;
+    }
+    
+    .fail {
+      background-color: #ffa94d;
+    }
+    
+    .divider {
+      border-top: 1px solid #e0e0e0;
+      margin: 15px 0;
+    }
+    
+    .footer {
+      font-size: 11px;
+      color: #999;
+      text-align: center;
+      margin-top: 15px;
+    }
+  </style>
+</head>
+<body>
+  <h1>
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="12" y1="8" x2="12" y2="12"></line>
+      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    Optuna Quick Prune
+  </h1>
+  
+  <div class="status" id="status">
+    Checking status...
+  </div>
+  
+  <div class="instructions">
+    <h3>How to use:</h3>
+    <ul>
+      <li>Quick action buttons appear when hovering over trials in the list</li>
+      <li>Floating buttons appear when viewing a trial's details</li>
+    </ul>
+    
+    <h3>Button actions:</h3>
+    <div class="buttons-info">
+      <span class="button-example prune">✂️ Prune</span>
+      <span class="button-example fail">❌ Fail</span>
+    </div>
+    
+    <p>Clicking a button will add the corresponding keyword to the trial's note and trigger your monitoring system.</p>
+  </div>
+  
+  <div class="divider"></div>
+  
+  <div class="footer">
+    Works with Optuna Dashboard on localhost
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

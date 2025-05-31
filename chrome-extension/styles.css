@@ -1,0 +1,208 @@
+/**
+ * Styles for Optuna Dashboard Quick Prune Extension
+ */
+
+/* Quick action buttons in trial list */
+.optuna-quick-actions-container {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 5px;
+  z-index: 10;
+}
+
+.optuna-quick-action {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  opacity: 0.8;
+  min-width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.optuna-quick-action:hover {
+  opacity: 1;
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.optuna-quick-action:active {
+  transform: scale(0.95);
+}
+
+.optuna-quick-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Prune button */
+.optuna-quick-prune {
+  background-color: #ff6b6b;
+  color: white;
+}
+
+.optuna-quick-prune:hover {
+  background-color: #ff5252;
+}
+
+/* Fail button */
+.optuna-quick-fail {
+  background-color: #ffa94d;
+  color: white;
+}
+
+.optuna-quick-fail:hover {
+  background-color: #ff922b;
+}
+
+/* Loading state */
+.optuna-quick-action.loading {
+  position: relative;
+  color: transparent;
+}
+
+.optuna-quick-action.loading::after {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  top: 50%;
+  left: 50%;
+  margin-left: -8px;
+  margin-top: -8px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  border-top-color: transparent;
+  animation: optuna-spin 0.8s linear infinite;
+}
+
+/* Success state */
+.optuna-quick-action.success {
+  background-color: #40c057 !important;
+}
+
+.optuna-quick-action.success::before {
+  content: '✓';
+  color: white;
+}
+
+/* Floating action buttons for trial detail view */
+.optuna-floating-actions {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1000;
+}
+
+.optuna-quick-action.floating {
+  padding: 12px 20px;
+  font-size: 16px;
+  min-width: auto;
+  height: auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.optuna-quick-action.floating:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+}
+
+/* Notifications */
+.optuna-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  transform: translateX(400px);
+  transition: transform 0.3s ease;
+  z-index: 10000;
+  max-width: 300px;
+}
+
+.optuna-notification.show {
+  transform: translateX(0);
+}
+
+.optuna-notification-success {
+  background-color: #40c057;
+}
+
+.optuna-notification-error {
+  background-color: #ff6b6b;
+}
+
+.optuna-notification-info {
+  background-color: #228be6;
+}
+
+/* Ensure buttons don't interfere with trial selection */
+[class*="MuiListItem"]:hover .optuna-quick-actions-container {
+  opacity: 1;
+}
+
+/* Initially hide buttons until hover */
+.optuna-quick-actions-container {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+[class*="MuiListItem"]:hover .optuna-quick-actions-container,
+.optuna-quick-actions-container:hover {
+  opacity: 1;
+}
+
+/* Animation for spinner */
+@keyframes optuna-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .optuna-quick-action {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  
+  .optuna-quick-action:hover {
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+  }
+  
+  .optuna-notification {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .optuna-floating-actions {
+    bottom: 20px;
+    right: 20px;
+  }
+  
+  .optuna-quick-action.floating {
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+  
+  .optuna-notification {
+    right: 10px;
+    top: 10px;
+    max-width: calc(100vw - 20px);
+  }
+}

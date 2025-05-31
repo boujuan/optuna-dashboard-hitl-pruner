@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../optuna-hparam-importance"
+		},
+		{
+			"path": "../optuna-dashboard-fork/optuna-dashboard"
 		}
 	],
 	"settings": {}
