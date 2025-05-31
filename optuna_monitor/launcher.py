@@ -78,6 +78,76 @@ def find_free_port():
         port = s.getsockname()[1]
     return port
 
+def is_port_in_use(port):
+    """Check if a port is already in use."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('127.0.0.1', port))
+            return False
+        except OSError:
+            return True
+
+def wait_for_port_available(port, timeout=30):
+    """Wait for a port to become available."""
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if not is_port_in_use(port):
+            return True
+        time.sleep(0.5)
+    return False
+
+def kill_process_on_port(port):
+    """Try to kill process using the specified port."""
+    try:
+        # Try lsof first (Linux/Mac)
+        result = subprocess.run(['lsof', '-ti', f':{port}'], capture_output=True, text=True)
+        if result.returncode == 0 and result.stdout.strip():
+            pid = result.stdout.strip()
+            print(f"Found process {pid} using port {port}, attempting to kill...")
+            subprocess.run(['kill', '-9', pid])
+            time.sleep(1)
+            return True
+    except FileNotFoundError:
+        # lsof not available, try netstat
+        pass
+    
+    try:
+        # Alternative: use netstat (more universal)
+        result = subprocess.run(['netstat', '-tlnp'], capture_output=True, text=True)
+        for line in result.stdout.split('\n'):
+            if f':{port}' in line and 'LISTEN' in line:
+                # Extract PID from the line
+                parts = line.split()
+                if len(parts) >= 7:
+                    pid_prog = parts[6]
+                    if '/' in pid_prog:
+                        pid = pid_prog.split('/')[0]
+                        print(f"Found process {pid} using port {port}, attempting to kill...")
+                        subprocess.run(['kill', '-9', pid])
+                        time.sleep(1)
+                        return True
+    except Exception:
+        pass
+    
+    try:
+        # Last resort: use ss command
+        result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], capture_output=True, text=True)
+        if 'pid=' in result.stdout:
+            # Extract PID
+            import re
+            match = re.search(r'pid=(\d+)', result.stdout)
+            if match:
+                pid = match.group(1)
+                print(f"Found process {pid} using port {port}, attempting to kill...")
+                subprocess.run(['kill', '-9', pid])
+                time.sleep(1)
+                return True
+    except Exception:
+        pass
+    
+    print(f"Could not find/kill process on port {port} (tried lsof, netstat, ss)")
+    return False
+
 def create_ssh_tunnel(ssh_host, ssh_user, ssh_port, db_host, db_port, ssh_key_path=None, ssh_password=None):
     """Create an SSH tunnel and return the local port."""
     global SSH_TUNNEL_PROCESS
@@ -151,6 +221,7 @@ def main():
     # Monitor configuration
     monitor_group = parser.add_argument_group('Monitor configuration')
     monitor_group.add_argument("--port", type=int, default=8080, help="Specify port for optuna-dashboard (default: 8080)")
+    monitor_group.add_argument("--force-port", action="store_true", help="Force use of specified port by killing existing process if needed")
     monitor_group.add_argument("--study", nargs='*', help="Specify one or more study names to monitor (default: monitor all studies if none specified)")
     monitor_group.add_argument("--interval", type=int, default=10, help="Monitor check interval in seconds (default: 10)")
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
@@ -287,6 +358,24 @@ def main():
         if not package_installed(pkg):
             install_package(pkg)
 
+    # Check port availability and handle conflicts
+    if is_port_in_use(args.port):
+        print(f"Port {args.port} is already in use.")
+        if args.force_port:
+            print(f"Force mode enabled. Attempting to kill process on port {args.port}...")
+            if kill_process_on_port(args.port):
+                print(f"Successfully killed process on port {args.port}")
+                # Wait a bit for port to be released
+                if not wait_for_port_available(args.port, timeout=5):
+                    print(f"Error: Port {args.port} still in use after killing process", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print(f"Error: Could not kill process on port {args.port}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            print(f"Use --force-port to kill the existing process, or choose a different port with --port", file=sys.stderr)
+            sys.exit(1)
+
     # Launch Optuna Dashboard
     print(f"Starting optuna-dashboard on port {args.port}...")
     # Call optuna-dashboard directly as a command
@@ -295,43 +384,92 @@ def main():
     CHILD_PROCESSES.append(dashboard_process)
     print("Loading all studies from the database")
 
-    print("Waiting for dashboard to initialize (5 seconds)...")
-    time.sleep(5)
+    # Wait for dashboard to initialize with retries
+    print("Waiting for dashboard to initialize...")
+    max_retries = 10
+    for i in range(max_retries):
+        time.sleep(1)
+        if dashboard_process.poll() is not None:
+            # Process died
+            stdout, stderr = dashboard_process.communicate()
+            print(f"Error: Optuna dashboard failed to start", file=sys.stderr)
+            if stderr:
+                print(f"Error details: {stderr.decode()}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Check if port is now in use (dashboard started successfully)
+        if is_port_in_use(args.port):
+            print("Dashboard initialized successfully")
+            break
+    else:
+        print("Warning: Could not confirm dashboard started, but proceeding...")
 
-    # Launch Human Trial Monitor
-    print("Starting Human-in-the-loop Trial Monitor...")
-    # Pass arguments directly to human_trial_monitor.main()
-    monitor_args = [
-        f"--db-url={db_url}",
-        f"--interval={args.interval}",
-        f"--prune-pattern={args.prune_pattern}",
-        f"--fail-pattern={args.fail_pattern}"
-    ]
-    if args.study:
-        for study_name in args.study:
-            monitor_args.append(f"--study={study_name}")
-    if args.dry_run:
-        monitor_args.append("--dry-run")
-    if args.all_trials:
-        monitor_args.append("--only-active-trials") # Renamed in human_trial_monitor.py
-    if args.verbose:
-        monitor_args.append("--verbose")
+    # Check if we should start the monitor
+    should_start_monitor = True
+    if not args.study or (args.study and all(not s.strip() for s in args.study)):
+        # No studies specified or all are empty strings
+        print("No studies specified for monitoring.")
+        print("Dashboard will run without the Human-in-the-loop monitor.")
+        print("To enable monitoring, specify studies with --study study1 study2 or --study all")
+        should_start_monitor = False
+    
+    # Launch Human Trial Monitor in a separate thread (if needed)
+    monitor_thread = None
+    monitor_error = None
+    
+    if should_start_monitor:
+        print("Starting Human-in-the-loop Trial Monitor...")
+        
+        def run_monitor():
+            nonlocal monitor_error
+            try:
+                # Pass arguments directly to human_trial_monitor.main()
+                monitor_args = [
+                f"--db-url={db_url}",
+                f"--interval={args.interval}",
+                f"--prune-pattern={args.prune_pattern}",
+                f"--fail-pattern={args.fail_pattern}"
+                ]
+                if args.study:
+                    # Pass each study name as a separate --study argument
+                    for study_name in args.study:
+                        monitor_args.extend(["--study", study_name])
+                if args.dry_run:
+                    monitor_args.append("--dry-run")
+                if not args.all_trials:
+                    monitor_args.append("--only-active-trials") # Monitor only active trials by default
+                if args.verbose:
+                    monitor_args.append("--verbose")
 
-    # Temporarily replace sys.argv to pass arguments to human_trial_monitor.main()
-    original_argv = sys.argv
-    sys.argv = [human_trial_monitor.__file__] + monitor_args
-    try:
-        monitor_exit_code = human_trial_monitor.main()
-        if monitor_exit_code != 0:
-            print(f"Human Trial Monitor exited with code {monitor_exit_code}", file=sys.stderr)
-            # Decide if you want to exit the launcher or continue
-            # For now, we'll let the dashboard continue running
-    finally:
-        sys.argv = original_argv # Restore sys.argv
+                # Temporarily replace sys.argv to pass arguments to human_trial_monitor.main()
+                original_argv = sys.argv
+                sys.argv = [human_trial_monitor.__file__] + monitor_args
+                try:
+                    monitor_exit_code = human_trial_monitor.main()
+                    if monitor_exit_code != 0:
+                        monitor_error = f"Human Trial Monitor exited with code {monitor_exit_code}"
+                finally:
+                    sys.argv = original_argv # Restore sys.argv
+            except Exception as e:
+                monitor_error = f"Error in monitor thread: {e}"
+        
+        # Start monitor in thread
+        monitor_thread = threading.Thread(target=run_monitor, name="HumanTrialMonitorLauncher")
+        monitor_thread.daemon = True
+        monitor_thread.start()
+        
+        # Wait a bit to ensure monitor starts properly
+        time.sleep(2)
+        if monitor_error:
+            print(f"Error: {monitor_error}", file=sys.stderr)
+            # Continue anyway - dashboard can still be useful without monitor
 
     print("Services are running:")
     print(f"- Dashboard: http://localhost:{args.port}")
-    print("- Human-in-the-loop Monitor: Active and connected to the database")
+    if should_start_monitor:
+        print("- Human-in-the-loop Monitor: Active and connected to the database")
+    else:
+        print("- Human-in-the-loop Monitor: Not running (no studies specified)")
     print("The services will automatically stop when this terminal is closed.")
     print("To use: Add a note with 'PRUNE' or 'FAIL' to any trial in the dashboard to change its state.")
     if args.dry_run:

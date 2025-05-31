@@ -34,6 +34,7 @@ class HumanTrialStateMonitor:
     - Customizable command patterns for different actions.
     - Dry-run mode for testing without making actual changes.
     - Efficient change detection to avoid redundant processing.
+    - Study version tracking to minimize database queries.
     """
     def __init__(self, study, check_interval=10,
                  prune_pattern=r'PRUNE', fail_pattern=r'FAIL',
@@ -69,6 +70,11 @@ class HumanTrialStateMonitor:
         self.processed_note_versions = {}
         # Cache for trial_ids to avoid repeated lookups
         self._trial_id_cache = {}
+        # Track last known study version to minimize DB queries
+        self._last_study_version = None
+        # Cache system attributes to reduce DB load
+        self._cached_system_attrs = None
+        self._cache_timestamp = 0
 
         logger_msg = [f"Monitor initialized for study: {study.study_name}"]
         if dry_run:
@@ -115,8 +121,30 @@ class HumanTrialStateMonitor:
             storage = self.study._storage
             study_id = self.study._study_id
 
-            # --- Optimization 1: Fetch system attributes once per cycle ---
-            system_attrs = storage.get_study_system_attrs(study_id)
+            # --- Optimization 1: Check study version first ---
+            if hasattr(storage, 'get_study_name_from_id'):
+                # Try to get current study summary which includes version
+                try:
+                    study_summary = storage.get_study_summary(study_id)
+                    current_version = study_summary._n_trials  # Use trial count as proxy for version
+                    
+                    # Skip check if no changes since last check
+                    if self._last_study_version is not None and current_version == self._last_study_version:
+                        logger.debug(f"No changes in study (version {current_version}), skipping check")
+                        return
+                    
+                    self._last_study_version = current_version
+                except Exception as e:
+                    logger.debug(f"Could not check study version: {e}")
+
+            # --- Optimization 2: Cache system attributes with timestamp ---
+            current_time = time.time()
+            if self._cached_system_attrs is None or (current_time - self._cache_timestamp) > 5:  # 5 second cache
+                system_attrs = storage.get_study_system_attrs(study_id)
+                self._cached_system_attrs = system_attrs
+                self._cache_timestamp = current_time
+            else:
+                system_attrs = self._cached_system_attrs
 
             # Get all trials in the study, filtered if needed
             all_trials = self.study.get_trials(deepcopy=False, states=None)
@@ -178,15 +206,12 @@ class HumanTrialStateMonitor:
                     logger.info(f"New note version {current_note_version} detected for trial #{trial_number}. Content: '{note_body[:100]}{'...' if len(note_body)>100 else ''}'")
 
                     # Process the note content for commands
-                    processed_action = False
                     if self.prune_pattern.search(note_body):
                         logger.info(f"PRUNE command found in note for trial #{trial_number}")
                         self._change_trial_state(trial_number, TrialState.PRUNED)
-                        processed_action = True
                     elif self.fail_pattern.search(note_body):
                         logger.info(f"FAIL command found in note for trial #{trial_number}")
                         self._change_trial_state(trial_number, self.FAILED_STATE)
-                        processed_action = True
 
                     # Update the processed version *after* processing
                     self.processed_note_versions[trial_number] = current_note_version
@@ -277,14 +302,32 @@ class HumanTrialStateMonitor:
     def monitor_loop(self):
         """Main monitoring loop that runs in a separate thread"""
         logger.info("Starting monitor thread")
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
         while self.running:
             try:
                 # Check for note changes
                 self.check_for_note_changes()
+                # Reset error counter on success
+                consecutive_errors = 0
             except Exception as e:
-                logger.error(f"Critical error in monitor loop: {e}")
-                # Optional: Add a longer sleep after critical errors
-                # time.sleep(self.check_interval * 5)
+                consecutive_errors += 1
+                logger.error(f"Critical error in monitor loop (attempt {consecutive_errors}/{max_consecutive_errors}): {e}")
+                
+                # If too many consecutive errors, increase sleep time
+                if consecutive_errors >= max_consecutive_errors:
+                    logger.error(f"Too many consecutive errors. Pausing for {self.check_interval * 10} seconds...")
+                    time.sleep(self.check_interval * 10)
+                    consecutive_errors = 0  # Reset counter after long pause
+                    # Try to clear caches in case of stale data
+                    self._trial_id_cache.clear()
+                    self._cached_system_attrs = None
+                    logger.info("Cleared caches and resuming monitoring...")
+                else:
+                    # Shorter pause for transient errors
+                    time.sleep(self.check_interval * 2)
+                continue
 
             time.sleep(self.check_interval)
         logger.info("Monitor thread finished.")
@@ -412,39 +455,64 @@ def main():
     try:
         studies_to_monitor = []
         if args.study:
-            # Monitor specific studies provided by argument
-            studies_to_monitor = args.study
-            logger.info(f"Monitoring specified studies: {', '.join(studies_to_monitor)}")
+            # Check if user wants to monitor all studies
+            if len(args.study) == 1 and args.study[0].lower() == 'all':
+                logger.info("Loading all studies from the database...")
+                all_study_summaries = optuna.get_all_study_summaries(storage=db_url)
+                if not all_study_summaries:
+                    logger.warning("No studies found in the database to monitor.")
+                    return 0
+                studies_to_monitor = [s.study_name for s in all_study_summaries]
+                logger.info(f"Found {len(studies_to_monitor)} studies. Starting monitors for all of them...")
+            else:
+                # Monitor specific studies provided by argument
+                # Filter out empty strings
+                studies_to_monitor = [s for s in args.study if s.strip()]
+                if not studies_to_monitor:
+                    logger.warning("No valid study names provided (empty strings ignored).")
+                    logger.info("To monitor all studies, specify '--study all'")
+                    logger.info("To monitor specific studies, use '--study study1 study2 ...'")
+                    return 0
+                logger.info(f"Monitoring specified studies: {', '.join(studies_to_monitor)}")
         else:
-            # Monitor all studies in the database
-            logger.info("No specific studies provided. Loading all studies from the database...")
-            all_study_summaries = optuna.get_all_study_summaries(storage=db_url)
-            if not all_study_summaries:
-                logger.warning("No studies found in the database to monitor.")
-                return 0
-            studies_to_monitor = [s.study_name for s in all_study_summaries]
-            logger.info(f"Found {len(studies_to_monitor)} studies. Starting monitors for all of them...")
+            # No studies specified - don't monitor any by default
+            logger.info("No specific studies provided. Not monitoring any studies.")
+            logger.info("To monitor all studies, specify '--study all'")
+            logger.info("To monitor specific studies, use '--study study1 study2 ...'")
+            return 0
 
         for study_name in studies_to_monitor:
-            try:
-                logger.info(f"Loading study: {study_name}")
-                study = optuna.load_study(study_name=study_name, storage=db_url)
-                monitor = HumanTrialStateMonitor(
-                    study,
-                    check_interval=args.interval,
-                    prune_pattern=args.prune_pattern,
-                    fail_pattern=args.fail_pattern,
-                    dry_run=args.dry_run,
-                    only_active_trials=args.only_active_trials
-                )
-                monitor.start()
-                monitors.append(monitor)
-                logger.info(f"Started monitoring for study: {study_name}")
-            except Exception as load_err:
-                logger.error(f"Failed to load or start monitor for study '{study_name}': {load_err}")
+            logger.info(f"Loading study: {study_name}")
+            # Retry logic for loading study
+            max_retries = 3
+            retry_delay = 2
+            
+            for retry in range(max_retries):
+                try:
+                    study = optuna.load_study(study_name=study_name, storage=db_url)
+                    monitor = HumanTrialStateMonitor(
+                        study,
+                        check_interval=args.interval,
+                        prune_pattern=args.prune_pattern,
+                        fail_pattern=args.fail_pattern,
+                        dry_run=args.dry_run,
+                        only_active_trials=args.only_active_trials
+                    )
+                    monitor.start()
+                    monitors.append(monitor)
+                    logger.info(f"Started monitoring for study: {study_name}")
+                    break  # Success
+                except Exception as load_err:
+                    if retry < max_retries - 1:
+                        logger.warning(f"Failed to load study '{study_name}' (attempt {retry + 1}/{max_retries}): {load_err}")
+                        logger.info(f"Retrying in {retry_delay} seconds...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"Failed to load or start monitor for study '{study_name}' after {max_retries} attempts: {load_err}")
 
-            if monitors:
-                logger.info(f"Successfully started monitoring for {len(monitors)} studies.")
+        if monitors:
+            logger.info(f"Successfully started monitoring for {len(monitors)} studies.")
 
         if not monitors:
              logger.warning("No monitors started. Exiting.")

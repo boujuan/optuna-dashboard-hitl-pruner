@@ -9,3 +9,4 @@ optuna_dashboard_monitor.egg-info
 **/__pycache__/*
 ssh_tunnel*
 SSH_TUNNEL*
+CLAUDE.md
