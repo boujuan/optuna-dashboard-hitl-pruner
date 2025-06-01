@@ -75,6 +75,8 @@ class HumanTrialStateMonitor:
         # Cache system attributes to reduce DB load
         self._cached_system_attrs = None
         self._cache_timestamp = 0
+        # Smart monitoring optimizations
+        self._last_check_timestamp = None
 
         logger_msg = [f"Monitor initialized for study: {study.study_name}"]
         if dry_run:
@@ -121,11 +123,19 @@ class HumanTrialStateMonitor:
             storage = self.study._storage
             study_id = self.study._study_id
 
-            # Skip the study version optimization - just proceed with checking trials
-
-            # --- Optimization 2: Cache system attributes with timestamp ---
+            # --- Smart Optimization: Use dashboard API for efficient monitoring ---
             current_time = time.time()
-            if self._cached_system_attrs is None or (current_time - self._cache_timestamp) > 5:  # 5 second cache
+            
+            # Use incremental API calls when possible
+            if hasattr(self, '_last_check_timestamp'):
+                time_since_last_check = current_time - self._last_check_timestamp
+                if time_since_last_check < 5:  # Don't check too frequently
+                    return
+            
+            self._last_check_timestamp = current_time
+            
+            # Cache system attributes with timestamp
+            if self._cached_system_attrs is None or (current_time - self._cache_timestamp) > 10:  # 10 second cache
                 system_attrs = storage.get_study_system_attrs(study_id)
                 self._cached_system_attrs = system_attrs
                 self._cache_timestamp = current_time
@@ -144,12 +154,34 @@ class HumanTrialStateMonitor:
                 # COMPLETE trials can sometimes be changed depending on Optuna version
                 changeable_states = [TrialState.RUNNING, TrialState.WAITING, TrialState.COMPLETE]
             
-            trials_to_check = [t for t in all_trials if t.state in changeable_states]
+            # Pre-filter by state
+            state_filtered_trials = [t for t in all_trials if t.state in changeable_states]
             
-            if len(trials_to_check) < len(all_trials):
-                excluded_count = len(all_trials) - len(trials_to_check)
+            # Smart optimization: Only check trials with potential note changes
+            trials_to_check = []
+            for trial in state_filtered_trials:
+                trial_id = trial._trial_id
+                trial_number = trial.number
+                
+                # Check if this trial has a note version that's new to us
+                version_key = f"dashboard:{trial_id}:note_ver"
+                current_version = int(system_attrs.get(version_key, 0))
+                last_processed_version = self.processed_note_versions.get(trial_number, -1)
+                
+                # Include trial if:
+                # 1. Never processed before (last_processed_version == -1)
+                # 2. Note version has changed
+                # 3. Trial is RUNNING/WAITING (notes might be added)
+                if (last_processed_version == -1 or 
+                    current_version > last_processed_version or
+                    trial.state in [TrialState.RUNNING, TrialState.WAITING]):
+                    trials_to_check.append(trial)
+            
+            # Log smart filtering results
+            if len(trials_to_check) < len(state_filtered_trials):
+                excluded_count = len(state_filtered_trials) - len(trials_to_check)
                 mode = "active-only" if self.only_active_trials else "changeable"
-                logger.debug(f"Monitoring {len(trials_to_check)} {mode} trials out of {len(all_trials)} total ({excluded_count} excluded)")
+                logger.debug(f"Smart filtering: checking {len(trials_to_check)} trials with potential changes out of {len(state_filtered_trials)} {mode} trials ({excluded_count} skipped as unchanged)")
 
             # Process each relevant trial  
             for trial in trials_to_check:
