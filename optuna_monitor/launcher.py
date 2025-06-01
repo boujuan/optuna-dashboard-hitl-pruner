@@ -556,15 +556,17 @@ def main():
                 f"--fail-pattern={args.fail_pattern}"
                 ]
                 if args.study:
-                    # Pass each study name as a separate --study argument
-                    for study_name in args.study:
-                        monitor_args.extend(["--study", study_name])
+                    # Pass all study names as arguments after a single --study flag
+                    monitor_args.extend(["--study"] + args.study)
                 if args.dry_run:
                     monitor_args.append("--dry-run")
                 if not args.all_trials:
                     monitor_args.append("--only-active-trials") # Monitor only active trials by default
                 if args.verbose:
                     monitor_args.append("--verbose")
+                
+                # Always enable some debug logging for troubleshooting
+                print(f"Starting monitor with args: {' '.join(monitor_args)}")
 
                 # Temporarily replace sys.argv to pass arguments to human_trial_monitor.main()
                 original_argv = sys.argv
