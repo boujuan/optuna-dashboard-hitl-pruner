@@ -127,7 +127,7 @@ class HumanTrialStateMonitor:
             current_time = time.time()
             
             # Use incremental API calls when possible
-            if hasattr(self, '_last_check_timestamp'):
+            if self._last_check_timestamp is not None:
                 time_since_last_check = current_time - self._last_check_timestamp
                 if time_since_last_check < 5:  # Don't check too frequently
                     return
