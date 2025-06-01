@@ -149,22 +149,23 @@ class HumanTrialStateMonitor:
             # Get all trials in the study, filtered if needed
             all_trials = self.study.get_trials(deepcopy=False, states=None)
 
-            # Filter trials
+            # Filter trials based on what can be safely changed
             if self.only_active_trials:
-                # Include COMPLETE state here, as users might add notes after completion
-                # but exclude states that definitely won't be changed again.
-                inactive_states = [TrialState.PRUNED, self.FAILED_STATE]
-                trials_to_check = [t for t in all_trials if t.state not in inactive_states]
-                if len(trials_to_check) < len(all_trials):
-                    logger.debug(f"Checking {len(trials_to_check)} potentially active trials out of {len(all_trials)} total.")
-                    excluded_trials = [t for t in all_trials if t.state in inactive_states]
-                    if excluded_trials:
-                        logger.debug(f"Excluded trials: {[f'#{t.number}({t.state})' for t in excluded_trials[:5]]}{'...' if len(excluded_trials) > 5 else ''}")
+                # Monitor only RUNNING and WAITING trials (most restrictive)
+                changeable_states = [TrialState.RUNNING, TrialState.WAITING]
             else:
-                trials_to_check = all_trials
+                # Monitor RUNNING, WAITING, and COMPLETE trials (but not PRUNED/FAILED)
+                # COMPLETE trials can sometimes be changed depending on Optuna version
+                changeable_states = [TrialState.RUNNING, TrialState.WAITING, TrialState.COMPLETE]
+            
+            trials_to_check = [t for t in all_trials if t.state in changeable_states]
+            
+            if len(trials_to_check) < len(all_trials):
+                excluded_count = len(all_trials) - len(trials_to_check)
+                mode = "active-only" if self.only_active_trials else "changeable"
+                logger.debug(f"Monitoring {len(trials_to_check)} {mode} trials out of {len(all_trials)} total ({excluded_count} excluded)")
 
-            # Process each relevant trial
-            logger.debug(f"Checking {len(trials_to_check)} trials for note changes")
+            # Process each relevant trial  
             for trial in trials_to_check:
                 try:
                     # Pass pre-fetched system_attrs for efficiency
@@ -197,35 +198,28 @@ class HumanTrialStateMonitor:
             current_note_version = int(system_attrs.get(version_key, 0))
             last_processed_version = self.processed_note_versions.get(trial_number, -1) # Use -1 to process version 0
 
-            logger.debug(f"Trial #{trial_number} (ID: {trial_id}): version_key={version_key}, current_version={current_note_version}, last_processed={last_processed_version}")
-
             # Only process if the note version is new
             if current_note_version > last_processed_version:
                 # Extract the note body *only* when the version has changed
                 note_data = get_note_from_system_attrs(system_attrs, trial_id)
                 note_body = note_data["body"]
 
-                logger.debug(f"Trial #{trial_number}: Found note body: '{note_body}'")
-
                 if not note_body and last_processed_version == -1 and current_note_version == 0:
                      # Skip empty initial notes unless explicitly processed before
-                     logger.debug(f"Trial #{trial_number}: Skipping empty initial note")
                      pass
                 else:
-                    logger.info(f"New note version {current_note_version} detected for trial #{trial_number}. Content: '{note_body[:100]}{'...' if len(note_body)>100 else ''}'")
+                    logger.info(f"📝 Trial #{trial_number} note changed (v{current_note_version}): '{note_body[:100]}{'...' if len(note_body)>100 else ''}'")
 
                     # Process the note content for commands
                     if self.prune_pattern.search(note_body):
-                        logger.info(f"PRUNE command found in note for trial #{trial_number}")
+                        logger.info(f"🔶 PRUNE command found in trial #{trial_number}")
                         self._change_trial_state(trial_number, TrialState.PRUNED)
                     elif self.fail_pattern.search(note_body):
-                        logger.info(f"FAIL command found in note for trial #{trial_number}")
+                        logger.info(f"🔴 FAIL command found in trial #{trial_number}")
                         self._change_trial_state(trial_number, self.FAILED_STATE)
 
                     # Update the processed version *after* processing
                     self.processed_note_versions[trial_number] = current_note_version
-            else:
-                logger.debug(f"Trial #{trial_number}: No new note version (current={current_note_version}, last_processed={last_processed_version})")
 
             # Clean up cache for finished trials to prevent memory leak if monitoring all trials
             if trial.state.is_finished() and trial_number in self._trial_id_cache:
@@ -391,7 +385,7 @@ def main():
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
     monitor_group.add_argument("--fail-pattern", default="FAIL", help="Regex pattern to detect FAIL commands (default: 'FAIL')")
     monitor_group.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (no changes applied)")
-    monitor_group.add_argument("--only-active-trials", action="store_true", help="Monitor only potentially active trials (e.g., RUNNING, WAITING, COMPLETE), rather than all trials by default.")
+    monitor_group.add_argument("--only-active-trials", action="store_true", help="Monitor only RUNNING and WAITING trials (excludes COMPLETE trials which may have notes added later)")
     monitor_group.add_argument("--verbose", action="store_true", help="Enable verbose logging (DEBUG level)")
 
     args = parser.parse_args()

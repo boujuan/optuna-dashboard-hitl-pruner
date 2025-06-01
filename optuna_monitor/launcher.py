@@ -316,7 +316,7 @@ def main():
     monitor_group.add_argument("--prune-pattern", default="PRUNE", help="Regex pattern to detect PRUNE commands (default: 'PRUNE')")
     monitor_group.add_argument("--fail-pattern", default="FAIL", help="Regex pattern to detect FAIL commands (default: 'FAIL')")
     monitor_group.add_argument("--dry-run", action="store_true", help="Run in dry-run mode (no changes applied)")
-    monitor_group.add_argument("--all-trials", action="store_true", help="Monitor all trials, not just active ones")
+    monitor_group.add_argument("--all-trials", action="store_true", help="Monitor RUNNING, WAITING, and COMPLETE trials (default: only RUNNING and WAITING)")
     monitor_group.add_argument("--verbose", action="store_true", help="Enable verbose logging (DEBUG level)")
 
     # Browser launch options
