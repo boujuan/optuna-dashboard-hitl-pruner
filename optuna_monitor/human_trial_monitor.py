@@ -121,21 +121,7 @@ class HumanTrialStateMonitor:
             storage = self.study._storage
             study_id = self.study._study_id
 
-            # --- Optimization 1: Check study version first ---
-            if hasattr(storage, 'get_study_name_from_id'):
-                # Try to get current study summary which includes version
-                try:
-                    study_summary = storage.get_study_summary(study_id)
-                    current_version = study_summary._n_trials  # Use trial count as proxy for version
-                    
-                    # Skip check if no changes since last check
-                    if self._last_study_version is not None and current_version == self._last_study_version:
-                        logger.debug(f"No changes in study (version {current_version}), skipping check")
-                        return
-                    
-                    self._last_study_version = current_version
-                except Exception as e:
-                    logger.debug(f"Could not check study version: {e}")
+            # Skip the study version optimization - just proceed with checking trials
 
             # --- Optimization 2: Cache system attributes with timestamp ---
             current_time = time.time()
