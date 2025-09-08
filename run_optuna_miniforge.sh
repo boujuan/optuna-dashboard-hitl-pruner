@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Default conda environment name
-CONDA_ENV="${CONDA_ENV:-wf_env}"  # Use environment variable or default to wf_env
+CONDA_ENV="${CONDA_ENV:-optuna-dashboard}"  # Use environment variable or default to optuna-dashboard
 
 CONDA_BASE_PATH="$HOME/miniforge3" # Default Conda installation path
 echo "Starting Optuna Dashboard with Human-in-the-Loop monitoring..."
@@ -55,8 +55,8 @@ conda activate $CONDA_ENV
 
 echo "Environment activated, starting services..."
 
-# Run the main script with all parameters and pass the conda environment name
-python3 -m optuna_monitor.launcher "${LAUNCHER_ARGS[@]}"
+# Run the main script with all parameters and automatically open browser
+python3 -m optuna_monitor.launcher "${LAUNCHER_ARGS[@]}" --browser-path "/home/boujuan/.local/bin/edge-optuna-launcher"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting

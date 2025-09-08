@@ -1,6 +1,0 @@
-{
-  "task": "linux-local-adaptation",
-  "branch": "feature/linux-local-adaptation",
-  "services": ["optuna_monitor", "launcher", "sqlite"],
-  "updated": "2025-09-08"
-}
