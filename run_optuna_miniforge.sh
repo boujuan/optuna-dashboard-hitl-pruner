@@ -49,14 +49,20 @@ if [ ! -d "$CONDA_BASE_PATH" ]; then
     exit 1
 fi
 
-export PATH="$CONDA_BASE_PATH/bin:$PATH"
-source "$CONDA_BASE_PATH/etc/profile.d/conda.sh"
-conda activate $CONDA_ENV
+# Use the Python from the target environment directly
+PYTHON_BIN="$CONDA_BASE_PATH/envs/$CONDA_ENV/bin/python"
+
+if [ ! -f "$PYTHON_BIN" ]; then
+    echo "Error: Python not found at $PYTHON_BIN"
+    echo "Make sure the conda environment '$CONDA_ENV' exists."
+    exit 1
+fi
 
 echo "Environment activated, starting services..."
+echo "Using Python: $PYTHON_BIN"
 
 # Run the main script with all parameters and automatically open browser
-python3 -m optuna_monitor.launcher "${LAUNCHER_ARGS[@]}" --browser-path "/home/boujuan/.local/bin/edge-optuna-launcher"
+"$PYTHON_BIN" -m optuna_monitor.launcher "${LAUNCHER_ARGS[@]}" --browser-path "/home/boujuan/.local/bin/edge-optuna-launcher"
 exit_code=$?
 
 # If there was an error, wait for user input before exiting

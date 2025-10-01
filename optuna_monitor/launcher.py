@@ -508,7 +508,9 @@ def main():
 
     # Launch Optuna Dashboard
     print(f"Starting optuna-dashboard on port {args.port}...")
-    dashboard_cmd = ["optuna-dashboard", db_url, "--port", str(args.port), "--host", "0.0.0.0"]
+    # Use the full path to optuna-dashboard from the same environment as this Python
+    optuna_dashboard_path = os.path.join(os.path.dirname(sys.executable), "optuna-dashboard")
+    dashboard_cmd = [optuna_dashboard_path, db_url, "--port", str(args.port), "--host", "0.0.0.0"]
     dashboard_process = subprocess.Popen(dashboard_cmd, preexec_fn=os.setsid)
     CHILD_PROCESSES.append(dashboard_process)
     print("Loading all studies from the database")
